@@ -1,0 +1,32 @@
+DreamForge engine
+Licensed under the GNU General Public License, version 3 (see LICENSE).
+
+This repository contains no third-party source code.
+
+Third-party work used or referred to
+------------------------------------
+
+le2elf.py
+    Converts an LE executable (DOS/4GW) to a 32-bit ELF file. It was used
+    during the analysis and is NOT included here. Nothing in this
+    repository needs it.
+    Author:  TODO (owner: fill in before publishing)
+    Licence: TODO
+    Link:    TODO
+
+FFmpeg -- https://ffmpeg.org/
+    Already decodes the .DFA cutscene format, as "Chronomaster DFA".
+    tools/dfa_dump.py is an independent implementation. FFmpeg's output was
+    used to check it; none of its code is included.
+
+Ghidra -- https://github.com/NationalSecurityAgency/ghidra
+    Used for static analysis. Not included, and no output of it is included.
+
+Unity .gitignore template -- https://github.com/github/gitignore
+    Part of .gitignore is based on Unity.gitignore (CC0-1.0).
+
+Games
+-----
+Menzoberranzan, Ravenloft: Strahd's Possession and Ravenloft: Stone Prophet
+belong to their respective rights holders. No content from them is included.
+This project is not affiliated with or endorsed by any rights holder.
