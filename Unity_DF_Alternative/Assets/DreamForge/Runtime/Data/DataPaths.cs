@@ -65,6 +65,39 @@ namespace DreamForge.Data
             return dirs;
         }
 
+        /// <summary>
+        /// Finds one game file: in <paramref name="overrideFolder"/> if given, otherwise in the game's
+        /// folders from data-path.txt. Returns null and sets <paramref name="error"/> if it can't.
+        /// </summary>
+        public static string Resolve(string game, string fileName, string overrideFolder, out string error)
+        {
+            error = null;
+            List<string> folders;
+            if (!string.IsNullOrWhiteSpace(overrideFolder))
+            {
+                folders = new List<string> { overrideFolder.Trim() };
+            }
+            else
+            {
+                var map = Load(out string used);
+                if (map == null)
+                {
+                    error = $"No {FileName} found. Looked in: {string.Join("; ", Candidates())}";
+                    return null;
+                }
+                folders = GameFolders(map, game);
+                if (folders.Count == 0)
+                {
+                    error = $"{used} has no '{game}.install' or '{game}.cd' entry.";
+                    return null;
+                }
+            }
+            string path = FindFile(folders, fileName);
+            if (path == null)
+                error = $"{fileName} not found in: {string.Join("; ", folders)}";
+            return path;
+        }
+
         /// <summary>Finds a file by name, ignoring case, in the given folders in order. Returns null if absent.</summary>
         public static string FindFile(IEnumerable<string> folders, string name)
         {

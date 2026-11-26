@@ -44,31 +44,10 @@ namespace DreamForge.Diagnostics
 
         void Run()
         {
-            List<string> folders;
-            if (!string.IsNullOrWhiteSpace(localFolderOverride))
-            {
-                folders = new List<string> { localFolderOverride.Trim() };
-            }
-            else
-            {
-                var map = DataPaths.Load(out string used);
-                if (map == null)
-                {
-                    Debug.LogError($"[RES] No {DataPaths.FileName} found. Looked in: {string.Join("; ", DataPaths.Candidates())}");
-                    return;
-                }
-                folders = DataPaths.GameFolders(map, game);
-                if (folders.Count == 0)
-                {
-                    Debug.LogError($"[RES] {used} has no '{game}.install' or '{game}.cd' entry.");
-                    return;
-                }
-            }
-
-            string path = DataPaths.FindFile(folders, fileName);
+            string path = DataPaths.Resolve(game, fileName, localFolderOverride, out string error);
             if (path == null)
             {
-                Debug.LogError($"[RES] {fileName} not found in: {string.Join("; ", folders)}");
+                Debug.LogError($"[RES] {error}");
                 return;
             }
 

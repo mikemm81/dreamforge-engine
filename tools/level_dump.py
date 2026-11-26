@@ -4,6 +4,8 @@
 
 usage: level_dump.py GAMEDIR check            validate all 56 levels (summary)
        level_dump.py GAMEDIR level N          print one level's spawns, records and trigger lists
+       level_dump.py GAMEDIR map N            print one level's header, ASCII map, wall types and records
+                                             (same text as the Unity LevelMapLogger, for diffing)
        level_dump.py GAMEDIR savelev FILE     parse a saved LEVnnn.DAT
 
 Layouts: docs/formats/levels.md.
@@ -38,7 +40,8 @@ def header(h):
     w, hh = struct.unpack_from('<hh', h, 1)
     npc, item, obj = struct.unpack_from('<3h', h, 0x80a)
     return dict(tag=h[0], w=w, h=hh, ceiling=struct.unpack_from('<h', h, 5)[0], floor=struct.unpack_from('<h', h, 7)[0], one_story=h[9],
-                npcs=npc, items=item, objects=obj, sky=h[0x810], wallset=h[0x811], light=h[0x81a], music=h[0x81c],
+                npcs=npc, items=item, objects=obj, sky=h[0x810], wallset=h[0x811], ceil_colour=h[0x818], floor_colour=h[0x819],
+                light=h[0x81a], music=h[0x81c],
                 walls=[struct.unpack_from('<16h', h, 10 + 32 * i) for i in range(64)])
 
 
@@ -156,10 +159,46 @@ def show(gd, L, i):
         for a in t: print('  trig', k, OPS.get(a[0], a[0]), 'cell', (a[2], a[1]), 'args', a[3:])
 
 
+WALL_CHARS = '.123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ$%'
+LETTERS = [(8, 'X'), (1, 'D'), (4, 'L'), (2, 'S'), (3, 'T'), (6, '@'), (10, 'E'), (11, 'u'), (0, 'd')]  # priority order
+
+
+def map_text(L, i):
+    """Header, ASCII map, wall-type map and records, in the Unity LevelMapLogger's format."""
+    H = L['hdr']; w, h = H['w'], H['h']; c = L['cells']
+    out = ['level %d: %dx%d' % (i, w, h),
+           'header ceiling %d floor %d two_rows_flag %d sky %d wallset %d colours %d %d light %d music %d' % (
+               H['ceiling'], H['floor'], H['one_story'], H['sky'], H['wallset'], H['ceil_colour'], H['floor_colour'], H['light'], H['music']),
+           'counts npcs %d items %d objects %d records %d trigger_lists_used %d automap %d notes %d left_over %d' % (
+               H['npcs'], H['items'], H['objects'], len(L['recs']), sum(1 for t in L['trig'] if t), len(L['automap']), len(L['notes']), L['left'])]
+    rank = {k: n for n, (k, _) in enumerate(LETTERS)}; letter = dict(LETTERS); best = {}
+    for _, q in L['recs']:
+        if q['x'] < w and q['y'] < h:
+            s = rank.get(q['kind'], len(LETTERS))
+            if (q['x'], q['y']) not in best or s < best[q['x'], q['y']][0]:
+                best[q['x'], q['y']] = (s, letter.get(q['kind'], '?'))
+    out.append('map (x across, y down; . open, # wall, ~ vanishing wall, letters = records)')
+    for y in range(h):
+        row = ''
+        for x in range(w):
+            b0, b1 = c[2 * (y * w + x)], c[2 * (y * w + x) + 1]
+            row += best[x, y][1] if (x, y) in best else '.' if not b0 & 0x3f else '~' if b1 & 0x08 else '#'
+        out.append(row)
+    out.append('wall types (. = 0, 1-9 a-z A-Z = 1-61, $ = 62, % = 63)')
+    for y in range(h):
+        out.append(''.join(WALL_CHARS[c[2 * (y * w + x)] & 0x3f] for x in range(w)))
+    out.append('records (x y kind flags trig trig2 a6 a7 overlay click face row)')
+    for _, q in L['recs']:
+        r = q['raw']
+        out.append('rec %d %d %d %02x %d %d %d %d %d %d,%d,%d,%d %d %d' % (
+            q['x'], q['y'], q['kind'], q['flags'], q['trig'], q['trig2'], q['a6'], q['a7'], q['tex'], r[10], r[11], r[12], r[13], r[14], r[15]))
+    return '\n'.join(out)
+
 if __name__ == '__main__':
     gd, cmd = sys.argv[1], sys.argv[2]
     if cmd == 'check': check(gd)
     elif cmd == 'level': show(gd, level(levels(gd)[int(sys.argv[3])]), int(sys.argv[3]))
+    elif cmd == 'map': print(map_text(level(levels(gd)[int(sys.argv[3])]), int(sys.argv[3])))
     elif cmd == 'savelev':
         L = level(open(sys.argv[3], 'rb').read(), True)
         print({k: v for k, v in L['hdr'].items() if k != 'walls'}); print('section table matches', L['real'] == list(L['sect']), 'records', len(L['recs']), 'npcs', len(L['npc']), 'objects', len(L['obj']), L['objcount2'], 'items', len(L['item']), 'dims', L['dims2'], 'notes', len(L['notes']), 'left over', L['left'], 'sect', L['sect'])

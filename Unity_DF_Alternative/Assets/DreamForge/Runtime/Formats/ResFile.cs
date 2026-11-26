@@ -182,14 +182,26 @@ namespace DreamForge.Formats
             }
         }
 
+        /// <summary>The whole entry, from its offset to where the next one begins.</summary>
+        public byte[] ReadEntry(ResEntry e)
+        {
+            if (e.Kind == ResEntryKind.Invalid)
+                throw new InvalidDataException($"entry {e.Index}: {e.Problem}");
+            return ReadRange(e.Offset, e.Size);
+        }
+
         public byte[] ReadPayload(ResEntry e)
         {
             if (e.PayloadOffset < 0)
                 throw new InvalidOperationException($"entry {e.Index} has no known payload");
-            long n = e.End - e.PayloadOffset;
+            return ReadRange(e.PayloadOffset, e.End - e.PayloadOffset);
+        }
+
+        byte[] ReadRange(long start, long n)
+        {
             var buf = new byte[n];
             using var fs = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            fs.Position = e.PayloadOffset;
+            fs.Position = start;
             int read = 0;
             while (read < n)
             {
