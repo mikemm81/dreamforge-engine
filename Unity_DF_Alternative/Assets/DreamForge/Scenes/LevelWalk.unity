@@ -129,6 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1671125378}
   - component: {fileID: 1671125377}
+  - component: {fileID: 1671125379}
   m_Layer: 0
   m_Name: Level
   m_TagString: Untagged
@@ -152,7 +153,8 @@ MonoBehaviour:
   levelNumber: 1
   localFolderOverride: 
   cellSize: 2
-  wallHeight: 2
+  rowHeight: 3
+  textured: 1
   material: {fileID: 2100000, guid: a39b405451b1912469f8737846709c51, type: 2}
   tintVanishingWalls: 1
   spawnCell: {x: -1, y: -1}
@@ -171,6 +173,59 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1671125379
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1671125376}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f7116395329e21448a748f333d2fdad3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: DreamForge.Runtime::DreamForge.Diagnostics.FacePixelCheck
+  loader: {fileID: 1671125377}
+  forLevel: 1
+  game: menzo
+  localFolderOverride: 
+  faces:
+  - name: door, from inside
+    wall: {x: 6, y: 6}
+    from: {x: 6, y: 5}
+    expectLeft: 10
+    expectRight: 11
+  - name: door, from outside
+    wall: {x: 6, y: 6}
+    from: {x: 6, y: 7}
+    expectLeft: 10
+    expectRight: 11
+  - name: fireplace
+    wall: {x: 1, y: 4}
+    from: {x: 2, y: 4}
+    expectLeft: 32
+    expectRight: 33
+  - name: shelves left
+    wall: {x: 4, y: 0}
+    from: {x: 4, y: 1}
+    expectLeft: 30
+    expectRight: 31
+  - name: shelves right
+    wall: {x: 5, y: 0}
+    from: {x: 5, y: 1}
+    expectLeft: 30
+    expectRight: 31
+  - name: cell (5,6) from inside
+    wall: {x: 5, y: 6}
+    from: {x: 5, y: 5}
+    expectLeft: 19
+    expectRight: 15
+  - name: cell (5,6) from outside
+    wall: {x: 5, y: 6}
+    from: {x: 5, y: 7}
+    expectLeft: 16
+    expectRight: 19
+  floorCell: {x: 6, y: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

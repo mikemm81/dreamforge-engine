@@ -111,7 +111,7 @@ namespace DreamForge.Diagnostics
         }
 
         /// <summary>PNG via a temporary Texture2D. Our images are top row first; Unity textures start at the bottom row.</summary>
-        static byte[] EncodePng(int w, int h, byte[] rgbaTopDown)
+        internal static byte[] EncodePng(int w, int h, byte[] rgbaTopDown)
         {
             var bottomUp = new byte[rgbaTopDown.Length];
             int row = w * 4;

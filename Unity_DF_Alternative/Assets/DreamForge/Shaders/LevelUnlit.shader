@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Unlit URP shader that draws the mesh's vertex colours. Used for the untextured debug level.
-Shader "DreamForge/VertexColorUnlit"
+// Unlit URP shader for level geometry: texture x vertex colour, no lighting.
+// Debug colours use the default white texture; textured walls use white vertex colours.
+Shader "DreamForge/LevelUnlit"
 {
+    Properties
+    {
+        _MainTex ("Texture", 2D) = "white" {}
+    }
+
     SubShader
     {
         Tags { "RenderType" = "Opaque" "RenderPipeline" = "UniversalPipeline" "Queue" = "Geometry" }
@@ -9,15 +15,20 @@ Shader "DreamForge/VertexColorUnlit"
         HLSLINCLUDE
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
+        TEXTURE2D(_MainTex);
+        SAMPLER(sampler_MainTex);
+
         struct Attributes
         {
             float4 positionOS : POSITION;
+            float2 uv : TEXCOORD0;
             half4 color : COLOR;
         };
 
         struct Varyings
         {
             float4 positionCS : SV_POSITION;
+            float2 uv : TEXCOORD0;
             half4 color : COLOR;
         };
 
@@ -25,6 +36,7 @@ Shader "DreamForge/VertexColorUnlit"
         {
             Varyings o;
             o.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+            o.uv = input.uv;
             o.color = input.color;
             return o;
         }
@@ -40,7 +52,11 @@ Shader "DreamForge/VertexColorUnlit"
             HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment Frag
-            half4 Frag(Varyings input) : SV_Target { return half4(input.color.rgb, 1); }
+            half4 Frag(Varyings input) : SV_Target
+            {
+                half4 t = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv);
+                return half4(t.rgb * input.color.rgb, 1);
+            }
             ENDHLSL
         }
 

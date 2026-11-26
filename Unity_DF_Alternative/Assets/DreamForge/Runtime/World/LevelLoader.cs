@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 using System;
+using System.Linq;
 using System.Text;
 using DreamForge.Data;
 using DreamForge.Formats;
@@ -11,12 +12,16 @@ using UnityEngine.Serialization;
 namespace DreamForge.World
 {
     /// <summary>
-    /// On Play, parses one level from the user's LEVELS.DAT, builds untextured debug geometry with
-    /// collision, and spawns a first-person player. Tab switches to a top-down view of the whole map.
-    /// Everything is generated at run time; nothing derived from game data is saved in the project.
+    /// On Play, parses one level from the user's LEVELS.DAT, builds its geometry with collision (textured
+    /// from RES4 and COLORS, or in debug colours), and spawns a first-person player. Tab switches to a
+    /// top-down view of the whole map. Everything is generated in memory at run time; nothing derived
+    /// from game data is saved in the project.
     /// </summary>
     public sealed class LevelLoader : MonoBehaviour
     {
+        /// <summary>COLORS palette for 3D art in M (docs/formats/images.md).</summary>
+        const int Palette3D = 0;
+
         [Header("Data")]
         [Tooltip("Game key in data-path.txt. Only menzo has been tested.")]
         [SerializeField] string game = "menzo";
@@ -27,9 +32,13 @@ namespace DreamForge.World
 
         [Header("Scale (live: changes rebuild the level)")]
         [SerializeField, Min(0.25f)] float cellSize = 2f;
-        [SerializeField, Min(0.25f)] float wallHeight = 2f;
+        [Tooltip("Height of one row of wall texture. 1.5 x cell size gives square texels (a face is 128 x 192 texels).")]
+        [SerializeField, Min(0.25f)] float rowHeight = 3f;
 
-        [Header("Look")]
+        [Header("Look (live)")]
+        [Tooltip("Real wall, floor and ceiling textures; off = the debug colours by wall type.")]
+        [SerializeField] bool textured = true;
+        [Tooltip("Base material; its shader must be DreamForge/LevelUnlit (texture x vertex colour).")]
         [SerializeField] Material material;
         [SerializeField] bool tintVanishingWalls = true;
 
@@ -39,13 +48,24 @@ namespace DreamForge.World
 
         // Parsed at run time from the user's game data; never serialized.
         [NonSerialized] Level parsedLevel;
+        [NonSerialized] LevelTextures levelTextures;
+        [NonSerialized] LevelTextureCache textureCache;
 
         LevelMeshes meshes;
         GameObject root;
         FirstPersonController player;
         Camera topDown;
-        float builtCell, builtHeight;
-        bool builtTint;
+        float builtCell, builtRow;
+        bool builtTint, builtTextured;
+
+        /// <summary>For diagnostics (FacePixelCheck): the level and how it was built.</summary>
+        public Level ParsedLevel => parsedLevel;
+        public LevelTextures Textures => levelTextures;
+        public LevelTextureCache TextureCache => textureCache;
+        public LevelMeshes Meshes => meshes;
+        public float CellSize => builtCell;
+        public float RowHeight => builtRow;
+        public bool IsTextured => builtTextured && levelTextures != null;
 
         // Everything is set up in Awake, before the first frame is rendered, so the scene (which holds no
         // camera of its own) has the player's camera from frame one on an ordinary Play.
@@ -66,11 +86,12 @@ namespace DreamForge.World
 
             if (material == null)
             {
-                var shader = Shader.Find("DreamForge/VertexColorUnlit");
-                if (shader == null) { Fail("No material set and shader DreamForge/VertexColorUnlit not found."); return; }
-                material = new Material(shader);
+                var shader = Shader.Find("DreamForge/LevelUnlit");
+                if (shader == null) { Fail("No material set and shader DreamForge/LevelUnlit not found."); return; }
+                material = new Material(shader) { hideFlags = HideFlags.DontSave };
             }
 
+            LoadTextures();
             Build();
             var spawn = spawnCell.x >= 0 ? spawnCell : PickSpawn(parsedLevel);
             if (!InMap(spawn) || !parsedLevel.At(spawn.x, spawn.y).IsOpen)
@@ -82,12 +103,42 @@ namespace DreamForge.World
             LogSummary(spawn);
         }
 
+        /// <summary>RES4 + COLORS. If either is missing the level still loads, in debug colours.</summary>
+        void LoadTextures()
+        {
+            ResFile res4 = null;
+            Palette palette = null;
+            try
+            {
+                string resPath = DataPaths.Resolve(game, "RES4", localFolderOverride, out string e1);
+                string colorsPath = DataPaths.Resolve(game, "COLORS", localFolderOverride, out string e2);
+                if (resPath == null || colorsPath == null)
+                    Debug.LogWarning($"[WALK] no textures, using debug colours: {e1 ?? e2}");
+                else
+                {
+                    res4 = ResFile.Open(resPath);
+                    var colors = ColorsFile.Open(colorsPath);
+                    foreach (var w in colors.Warnings) Debug.LogWarning($"[WALK] COLORS: {w}");
+                    palette = colors.Get(Palette3D);
+                    levelTextures = new LevelTextures(res4, parsedLevel.Header);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[WALK] no textures, using debug colours: {ex.GetType().Name}: {ex.Message}");
+                res4 = null;
+                palette = null;
+                levelTextures = null;
+            }
+            textureCache = new LevelTextureCache(res4, palette, material);
+        }
+
         void Update()
         {
             if (parsedLevel == null || root == null) return;
 
-            if (!Mathf.Approximately(cellSize, builtCell) || !Mathf.Approximately(wallHeight, builtHeight) ||
-                tintVanishingWalls != builtTint)
+            if (!Mathf.Approximately(cellSize, builtCell) || !Mathf.Approximately(rowHeight, builtRow) ||
+                tintVanishingWalls != builtTint || textured != builtTextured)
                 Rebuild();
 
             var kb = Keyboard.current;
@@ -95,7 +146,11 @@ namespace DreamForge.World
                 SetTopDown(!topDown.enabled);
         }
 
-        void OnDestroy() => meshes?.Destroy();
+        void OnDestroy()
+        {
+            meshes?.Destroy();
+            textureCache?.Dispose();
+        }
 
         // ---- geometry ----
 
@@ -104,11 +159,13 @@ namespace DreamForge.World
             meshes?.Destroy();
             if (root != null) Destroy(root);
 
-            meshes = LevelGeometryBuilder.Build(parsedLevel, new LevelGeometrySettings
-                { CellSize = cellSize, WallHeight = wallHeight, TintVanishingWalls = tintVanishingWalls });
+            var settings = new LevelGeometrySettings
+                { CellSize = cellSize, RowHeight = rowHeight, TintVanishingWalls = tintVanishingWalls };
+            meshes = LevelGeometryBuilder.Build(parsedLevel, settings, textured ? levelTextures : null);
             builtCell = cellSize;
-            builtHeight = wallHeight;
+            builtRow = rowHeight;
             builtTint = tintVanishingWalls;
+            builtTextured = textured;
 
             root = new GameObject($"Level {levelNumber} (generated)");
             root.transform.SetParent(transform, false);
@@ -117,15 +174,18 @@ namespace DreamForge.World
             Part("Walls", meshes.Walls, collide: true);
             Part("WallTops", meshes.WallTops, collide: false);   // only visible from above
             PlaceTopDownCamera();
+
+            if (IsTextured)
+                foreach (var w in levelTextures.Warnings) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
         }
 
-        void Part(string name, Mesh mesh, bool collide)
+        void Part(string name, MeshPart part, bool collide)
         {
             var go = new GameObject(name);
             go.transform.SetParent(root.transform, false);
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            go.AddComponent<MeshRenderer>().sharedMaterial = material;
-            if (collide) go.AddComponent<MeshCollider>().sharedMesh = mesh;
+            go.AddComponent<MeshFilter>().sharedMesh = part.Mesh;
+            go.AddComponent<MeshRenderer>().sharedMaterials = part.Keys.Select(textureCache.Material).ToArray();
+            if (collide && part.Mesh.vertexCount > 0) go.AddComponent<MeshCollider>().sharedMesh = part.Mesh;
         }
 
         void Rebuild()
@@ -137,7 +197,8 @@ namespace DreamForge.World
             ConfigurePlayer();
             player.Teleport(new Vector3(p.x / oldCell * cellSize, 0.05f, p.z / oldCell * cellSize),
                             player.transform.eulerAngles.y);
-            Debug.Log($"[WALK] rebuilt: cell {cellSize} m, wall height {wallHeight} m");
+            Debug.Log($"[WALK] rebuilt: {(IsTextured ? "textured" : "debug colours")}, cell {cellSize} m, " +
+                      $"row height {rowHeight} m x {meshes.Rows} row(s)");
         }
 
         // ---- player and cameras ----
@@ -155,9 +216,10 @@ namespace DreamForge.World
 
         void ConfigurePlayer()
         {
-            float height = wallHeight * 0.8f;
+            // Sized from one row so two-row levels don't make a giant player. The eye height is a guess.
+            float height = rowHeight * 0.8f;
             float radius = Mathf.Min(cellSize * 0.25f, height * 0.45f);
-            player.Configure(height, radius, wallHeight * 0.6f);
+            player.Configure(height, radius, rowHeight * 0.6f);
         }
 
         void PlaceTopDownCamera()
@@ -172,13 +234,13 @@ namespace DreamForge.World
                 topDown.backgroundColor = DebugPalette.Background;
                 topDown.enabled = false;
             }
-            float w = parsedLevel.Width * cellSize, h = parsedLevel.Height * cellSize;
+            float w = parsedLevel.Width * cellSize, h = parsedLevel.Height * cellSize, top = meshes.WallHeight;
             float aspect = topDown.aspect > 0 ? topDown.aspect : 16f / 9f;
             topDown.orthographicSize = Mathf.Max(h / 2f, w / 2f / aspect) * 1.05f;
             topDown.nearClipPlane = 0.1f;
-            topDown.farClipPlane = wallHeight * 4f + 10f;
+            topDown.farClipPlane = top * 4f + 10f;
             // Looking straight down with +Z at the top of the screen: the same orientation as the ASCII map.
-            topDown.transform.SetPositionAndRotation(new Vector3(w / 2f, wallHeight * 2f + 5f, -h / 2f),
+            topDown.transform.SetPositionAndRotation(new Vector3(w / 2f, top * 2f + 5f, -h / 2f),
                                                      Quaternion.Euler(90f, 0f, 0f));
         }
 
@@ -233,12 +295,22 @@ namespace DreamForge.World
 
         void LogSummary(Vector2Int spawn)
         {
+            var h = parsedLevel.Header;
             var sb = new StringBuilder();
-            sb.Append($"[WALK] level {levelNumber}: {parsedLevel.Width}x{parsedLevel.Height}, cell {cellSize} m, wall height {wallHeight} m\n");
+            sb.Append($"[WALK] level {levelNumber}: {parsedLevel.Width}x{parsedLevel.Height}, cell {cellSize} m, " +
+                      $"row height {rowHeight} m x {meshes.Rows} row(s) = walls {meshes.WallHeight} m\n");
             sb.Append($"  open cells {meshes.OpenCells} (floor + ceiling quads), wall cells {meshes.WallCells}, " +
                       $"wall faces {meshes.WallFaces} (of them map edge {meshes.EdgeFaces}), vanishing walls {meshes.VanishingCells}\n");
-            sb.Append($"  ceiling: {(parsedLevel.Header.CeilingTile == -1 ? "sky (grey)" : "tile " + parsedLevel.Header.CeilingTile)}, " +
-                      $"spawn cell ({spawn.x}, {spawn.y})\n");
+            if (IsTextured)
+            {
+                string ceil = h.CeilingTile == -1 ? "sky (none drawn)" : $"tile {h.CeilingTile} -> RES4 {levelTextures.TileEntry(h.CeilingTile)}";
+                sb.Append($"  textured: wall set {h.WallSet}, palette {Palette3D}; floor tile {h.FloorTile} -> RES4 " +
+                          $"{levelTextures.TileEntry(h.FloorTile)}, ceiling {ceil} (tile orientation PROVISIONAL); " +
+                          $"{meshes.Walls.Keys.Length} wall textures; placeholder quads {meshes.PlaceholderQuads}\n");
+            }
+            else
+                sb.Append($"  debug colours; ceiling: {(h.CeilingTile == -1 ? "sky (grey)" : "tile " + h.CeilingTile)}\n");
+            sb.Append($"  spawn cell ({spawn.x}, {spawn.y})\n");
             sb.Append("  controls: click to capture the mouse, WASD/arrows, Shift to run, Tab top-down view, Esc release\n");
             sb.Append("  wall-type legend (map char, index, debug RGB, cells):");
             foreach (var kv in meshes.WallTypeCells)
