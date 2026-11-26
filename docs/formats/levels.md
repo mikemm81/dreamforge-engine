@@ -45,6 +45,8 @@ A wall type (M, P) has four faces. Each has four `s16` texture numbers, counted 
 
 ## Map cells
 
+Two bytes per cell, row by row: cell (x, y) starts at byte 2 × (y × width + x).
+
 | Byte | Bits | Meaning |
 |---|---|---|
 | 0 | 0x3F | wall type, 0 = open |
