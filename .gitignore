@@ -1,6 +1,6 @@
 # ============================================================================
-# 1. Unity (GitHub's Unity.gitignore, CC0-1.0). The project lives in unity/, so
-#    the template's root-anchored rules start with /unity.
+# 1. Unity (GitHub's Unity.gitignore, CC0-1.0). The project lives in Unity_DF_Alternative/, so
+#    the template's root-anchored rules start with /Unity_DF_Alternative.
 # ============================================================================
 #
 # Get latest from https://github.com/github/gitignore/blob/main/Unity.gitignore
