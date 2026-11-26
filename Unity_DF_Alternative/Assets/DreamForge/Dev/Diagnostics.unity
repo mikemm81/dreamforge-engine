@@ -149,7 +149,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: DreamForge.Runtime::DreamForge.Diagnostics.LevelMapLogger
   game: menzo
-  level: 1
+  levelNumber: 1
   localFolderOverride: 
 --- !u!4 &783548065
 Transform:

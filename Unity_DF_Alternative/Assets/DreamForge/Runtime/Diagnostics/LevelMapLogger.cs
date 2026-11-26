@@ -4,6 +4,7 @@ using System.Linq;
 using DreamForge.Data;
 using DreamForge.Formats;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace DreamForge.Diagnostics
 {
@@ -17,7 +18,7 @@ namespace DreamForge.Diagnostics
         [SerializeField] string game = "menzo";
 
         [Tooltip("Level number in LEVELS.DAT.")]
-        [SerializeField, Min(0)] int level = 1;
+        [SerializeField, Min(0), FormerlySerializedAs("level")] int levelNumber = 1;
 
         [Tooltip("Optional local folder that replaces data-path.txt. Leave empty in anything you commit.")]
         [SerializeField] string localFolderOverride = "";
@@ -30,7 +31,7 @@ namespace DreamForge.Diagnostics
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[LEVEL] Failed to read level {level}: {ex.GetType().Name}: {ex.Message}");
+                Debug.LogError($"[LEVEL] Failed to read level {levelNumber}: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -44,17 +45,17 @@ namespace DreamForge.Diagnostics
             }
 
             var file = LevelsFile.Open(path);
-            var lv = file.ReadLevel(level, LevelLayout.ForGame(game));
+            var lv = file.ReadLevel(levelNumber, LevelLayout.ForGame(game));
 
             Debug.Log($"[LEVEL] {path}: {file.Count} levels\n{LevelReport.Format(lv)}");
 
             var kinds = lv.Records.GroupBy(r => r.Kind).OrderBy(g => g.Key).Select(g => $"{g.Key}={g.Count()}");
-            Debug.Log($"[LEVEL] level {level} record kinds: {string.Join(", ", kinds)}\n  legend: {LevelReport.Legend}");
+            Debug.Log($"[LEVEL] level {levelNumber} record kinds: {string.Join(", ", kinds)}\n  legend: {LevelReport.Legend}");
 
             if (lv.Warnings.Count == 0)
-                Debug.Log($"[LEVEL] level {level}: parsed cleanly, ends exactly.");
+                Debug.Log($"[LEVEL] level {levelNumber}: parsed cleanly, ends exactly.");
             else
-                Debug.LogWarning($"[LEVEL] level {level}: {lv.Warnings.Count} warning(s):\n  " + string.Join("\n  ", lv.Warnings));
+                Debug.LogWarning($"[LEVEL] level {levelNumber}: {lv.Warnings.Count} warning(s):\n  " + string.Join("\n  ", lv.Warnings));
         }
     }
 }
