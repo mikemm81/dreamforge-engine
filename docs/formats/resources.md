@@ -39,7 +39,7 @@ Entries without `"EH"` in `RES9` are [scripts](scripts.md).
 | `RES10` | speech | speech | speech |
 | `RES11`, `RES12` | other sets, not read by the game as far as known | – | – |
 
-The last `RES4` entry of M and P doesn't decode (the data runs out).
+The last `RES4` entry of M and P doesn't decode (the data runs out). It is a floor or ceiling tile. Tiles hold 4,096 bytes, not the 4,098 their header gives, so a decoder that reads to 4,098 runs out of data on the last entry. On the other tiles it reads silently into the next entry. See [images.md](images.md#walls-and-tiles-res4). In general, a decoder should never read past the end of its entry.
 
 ## Compression
 

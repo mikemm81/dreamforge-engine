@@ -31,10 +31,12 @@ Type 2 has the same header, at the end of the data.
 
 | | Walls | Floor/ceiling tiles |
 |---|---|---|
-| M, P (type 5) | `u16 192`, then 64 columns of 192 bytes, top to bottom | 64 × 64 bytes, then 2 bytes of unknown meaning |
+| M, P (type 5) | `u16 192`, then 64 columns of 192 bytes, top to bottom | 64 × 64 bytes (see the note below) |
 | S (type 6) | 64 columns of 128 bytes | 64 × 64 bytes |
 
 Tell them apart by unpacked size: 12,290 and 4,098 bytes (M, P), or 8,192 and 4,096 (S). Whether tiles are stored by row or by column is unconfirmed.
+
+**Tile size in M and P.** The header gives 4,098 as the unpacked size, but each entry's data decodes to only 64 × 64 = 4,096 bytes. The other 2 bytes aren't stored in the entry. A decoder that keeps going to 4,098 reads past the end of the entry into the next entry's header, and on the last tile, which has nothing after it, the data runs out. That is the `RES4` entry that "doesn't decode" in [resources.md](resources.md). Stop decoding a tile after 4,096 bytes, and don't read past the end of an entry. Checked against every tile in M's `RES4` (85 tiles, all LZSS); P not yet checked.
 
 ## Column shapes (type 6 in M and P, type 7 in S)
 
