@@ -4,6 +4,8 @@
 
 `u8 count`, then `count` × 768 bytes: 256 RGB triples with 6 bits per component (0–63).
 
+**Converting to 8 bits (a convention of this project, not part of the format).** The tools and the engine use `v × 255 / 63` with integer division, which covers the full range: 0 → 0, 63 → 255. The hardware-literal alternative, `v << 2`, tops out at 252. The two give different values, so anything that compares pixels must use the same one.
+
 | Game | Palettes | Which to use |
 |---|---|---|
 | S | 15 | 0 for sprites, shapes and walls |
