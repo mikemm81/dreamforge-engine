@@ -8,7 +8,8 @@ Blob container:
 Texture layouts found by inspection:
   12290 bytes: u16 192 (column height), then 64 columns x 192 bytes, column-major
                -> wall texture 64 wide x 192 tall
-   4098 bytes: 64 x 64 bytes + 2 trailing bytes -> floor/ceiling tile (row order unconfirmed)
+   4098 bytes stated: floor/ceiling tile, 64 x 64 (row order unconfirmed). Only 4096 bytes are
+               stored; decoding stops there (see docs/formats/images.md, "Tile size in M and P")
 Strahd's Possession (hdrlen 0, see blob()):
    8192 bytes: 64 columns x 128 bytes, column-major -> wall texture 64 wide x 128 tall
    4096 bytes: 64 x 64 floor/ceiling tile
@@ -20,23 +21,33 @@ import os, struct, sys, argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from res_sprites import lzss, rle, png
 
-def blob(d, e0):
-    t = d[e0 + 2]
-    hl = struct.unpack_from('<H', d, e0 + 3)[0]
+TILE_STATED, TILE = 4098, 4096  # M, P tiles: header says 4098, entries hold 64 x 64
+
+
+def blob(d, e0, e1=None):
+    """Decode the entry d[e0:e1] (e1 = next entry's offset; None = end of file).
+    Works on the entry's own bytes only, so a short stream raises instead of reading the next entry."""
+    e = d[e0:e1]
+    t = e[2]
+    hl = struct.unpack_from('<H', e, 3)[0]
     if hl == 0:
         # Ravenloft: Strahd's Possession (older engine): "EH", u8 type (6/7), u16 hdrlen=0,
         # u16 unpacked size, then an LZSS stream (no compression byte)
-        size = struct.unpack_from('<H', d, e0 + 5)[0]
-        return lzss(d, e0 + 7, size, 0xFE)[0]
-    comp = d[e0 + 5]
-    size = struct.unpack_from('<I' if t == 5 else '<H', d, e0 + 6)[0]
-    p = e0 + 5 + hl
+        size = struct.unpack_from('<H', e, 5)[0]
+        return lzss(e, 7, size, 0xFE)[0]
+    comp = e[5]
+    size = struct.unpack_from('<I' if t == 5 else '<H', e, 6)[0]
+    if t == 5 and size == TILE_STATED:
+        size = TILE
+    p = 5 + hl
     if comp == 0:
-        return d[p:p + size]
+        if len(e) - p < size:
+            raise ValueError(f'stored data is {len(e) - p} bytes, expected {size}')
+        return e[p:p + size]
     if comp == 1:
-        return rle(d, p, size)[0]
+        return rle(e, p, size)[0]
     if comp == 3:
-        return lzss(d, p, size, 0xFE)[0]
+        return lzss(e, p, size, 0xFE)[0]
     raise ValueError(f'compression {comp}')
 
 def main():
@@ -57,8 +68,8 @@ def main():
         if d[e0:e0 + 2] != b'EH' or d[e0 + 2] not in (5, 6):
             continue
         try:
-            b = blob(d, e0)
-        except (IndexError, ValueError) as ex:
+            b = blob(d, e0, offs[i + 1] if i + 1 < n else len(d))
+        except (IndexError, ValueError, struct.error) as ex:
             print(f'entry {i}: {ex}'); bad += 1; continue
         if len(b) == 12290 and struct.unpack_from('<H', b, 0)[0] == 192:
             col = b[2:]
@@ -69,11 +80,8 @@ def main():
             pix = bytes(b[x * 128 + y] for y in range(128) for x in range(64))
             png(os.path.join(a.out, f'{i:04d}_wall_64x128.png'), 64, 128, pix, pal, None)
             walls += 1
-        elif len(b) == 4096 and d[e0 + 3:e0 + 5] == b'\0\0':
+        elif len(b) == TILE and (d[e0 + 2] == 5 or d[e0 + 3:e0 + 5] == b'\0\0'):  # M/P tile, or S
             png(os.path.join(a.out, f'{i:04d}_flat_64x64.png'), 64, 64, b, pal, None)
-            flats += 1
-        elif len(b) == 4098:
-            png(os.path.join(a.out, f'{i:04d}_flat_64x64.png'), 64, 64, b[:4096], pal, None)
             flats += 1
     print(f'exported {walls} walls, {flats} flats, {bad} errors into {a.out}')
 

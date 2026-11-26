@@ -40,6 +40,16 @@ namespace DreamForge.Formats
 
         public long End => Offset + Size;
 
+        /// <summary>M, P floor/ceiling tiles: the header states 4,098 bytes, but entries hold 64 x 64.</summary>
+        public const int TileStatedSize = 4098, TileSize = 64 * 64;
+
+        /// <summary>
+        /// Bytes the payload actually decodes to. Same as UnpackedSize, except for type 5 tiles
+        /// stated as 4,098 bytes, which hold 4,096 (docs/formats/images.md, "Tile size in M and P").
+        /// </summary>
+        public long DecodedSize =>
+            Type == 5 && UnpackedSize == TileStatedSize ? TileSize : UnpackedSize;
+
         /// <summary>One table row. tools/res_list.py prints the same format, so the two can be diffed.</summary>
         public string ToTableRow()
         {
@@ -191,15 +201,16 @@ namespace DreamForge.Formats
         }
 
         /// <summary>
-        /// Decodes a texture or column shape entry and reports whether it yields its unpacked size.
-        /// Returns null when the entry is fine or has nothing to check, otherwise a short description.
+        /// Decodes a texture or column shape entry and reports whether it yields its decoded size
+        /// (see ResEntry.DecodedSize). Returns null when the entry is fine or has nothing to check,
+        /// otherwise a short description.
         /// </summary>
         public string CheckPayload(ResEntry e)
         {
             if (e.PayloadOffset < 0 || e.UnpackedSize < 0)
                 return null;
             byte[] src = ReadPayload(e);
-            var result = ResCompression.Decode(src, e.Compression, (int)e.UnpackedSize, out _);
+            var result = ResCompression.Decode(src, e.Compression, (int)e.DecodedSize, out _);
             return result.Ok ? null : result.Message;
         }
     }

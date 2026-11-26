@@ -68,7 +68,7 @@ def main():
         if d[e0 + 2] == 6 and d[e0 + 3:e0 + 5] == b'\0\0':
             continue  # Strahd's Possession: type 6 = wall/flat texture, not a shape
         try:
-            b = blob(d, e0)
+            b = blob(d, e0, offs[i + 1] if i + 1 < n else len(d))
             if len(b) <= 16:
                 stubs += 1; continue
             width, pix = decode(b)
