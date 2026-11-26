@@ -149,7 +149,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: DreamForge.Runtime::DreamForge.World.LevelLoader
   game: menzo
-  level: 1
+  levelNumber: 1
   localFolderOverride: 
   cellSize: 2
   wallHeight: 2

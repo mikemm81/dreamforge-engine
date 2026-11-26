@@ -6,6 +6,7 @@ using DreamForge.Formats;
 using DreamForge.Player;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 namespace DreamForge.World
 {
@@ -19,7 +20,8 @@ namespace DreamForge.World
         [Header("Data")]
         [Tooltip("Game key in data-path.txt. Only menzo has been tested.")]
         [SerializeField] string game = "menzo";
-        [SerializeField, Min(0)] int level = 1;
+        [Tooltip("Level number in LEVELS.DAT.")]
+        [SerializeField, Min(0), FormerlySerializedAs("level")] int levelNumber = 1;
         [Tooltip("Optional local folder that replaces data-path.txt. Leave empty in anything you commit.")]
         [SerializeField] string localFolderOverride = "";
 
@@ -35,7 +37,8 @@ namespace DreamForge.World
         [Tooltip("Cell to start in; (-1, -1) = the open cell nearest the middle with the most open neighbours.")]
         [SerializeField] Vector2Int spawnCell = new Vector2Int(-1, -1);
 
-        public Level Level { get; private set; }
+        // Parsed at run time from the user's game data; never serialized.
+        [NonSerialized] Level parsedLevel;
 
         LevelMeshes meshes;
         GameObject root;
@@ -50,12 +53,12 @@ namespace DreamForge.World
             {
                 string path = DataPaths.Resolve(game, "LEVELS.DAT", localFolderOverride, out string error);
                 if (path == null) { Debug.LogError($"[WALK] {error}"); return; }
-                Level = LevelsFile.Open(path).ReadLevel(level, LevelLayout.ForGame(game));
-                foreach (var w in Level.Warnings) Debug.LogWarning($"[WALK] level {level}: {w}");
+                parsedLevel = LevelsFile.Open(path).ReadLevel(levelNumber, LevelLayout.ForGame(game));
+                foreach (var w in parsedLevel.Warnings) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[WALK] Failed to read level {level}: {ex.GetType().Name}: {ex.Message}");
+                Debug.LogError($"[WALK] Failed to read level {levelNumber}: {ex.GetType().Name}: {ex.Message}");
                 return;
             }
 
@@ -67,11 +70,11 @@ namespace DreamForge.World
             }
 
             Build();
-            var spawn = spawnCell.x >= 0 ? spawnCell : PickSpawn(Level);
-            if (!InMap(spawn) || !Level.At(spawn.x, spawn.y).IsOpen)
+            var spawn = spawnCell.x >= 0 ? spawnCell : PickSpawn(parsedLevel);
+            if (!InMap(spawn) || !parsedLevel.At(spawn.x, spawn.y).IsOpen)
             {
                 Debug.LogWarning($"[WALK] spawn cell {spawn} is not an open cell; using the automatic choice.");
-                spawn = PickSpawn(Level);
+                spawn = PickSpawn(parsedLevel);
             }
             CreatePlayer(spawn);
             LogSummary(spawn);
@@ -79,7 +82,7 @@ namespace DreamForge.World
 
         void Update()
         {
-            if (Level == null || root == null) return;
+            if (parsedLevel == null || root == null) return;
 
             if (!Mathf.Approximately(cellSize, builtCell) || !Mathf.Approximately(wallHeight, builtHeight) ||
                 tintVanishingWalls != builtTint)
@@ -99,13 +102,13 @@ namespace DreamForge.World
             meshes?.Destroy();
             if (root != null) Destroy(root);
 
-            meshes = LevelGeometryBuilder.Build(Level, new LevelGeometrySettings
+            meshes = LevelGeometryBuilder.Build(parsedLevel, new LevelGeometrySettings
                 { CellSize = cellSize, WallHeight = wallHeight, TintVanishingWalls = tintVanishingWalls });
             builtCell = cellSize;
             builtHeight = wallHeight;
             builtTint = tintVanishingWalls;
 
-            root = new GameObject($"Level {level} (generated)");
+            root = new GameObject($"Level {levelNumber} (generated)");
             root.transform.SetParent(transform, false);
             Part("Floor", meshes.Floor, collide: true);
             Part("Ceiling", meshes.Ceiling, collide: false);
@@ -167,7 +170,7 @@ namespace DreamForge.World
                 topDown.backgroundColor = DebugPalette.Background;
                 topDown.enabled = false;
             }
-            float w = Level.Width * cellSize, h = Level.Height * cellSize;
+            float w = parsedLevel.Width * cellSize, h = parsedLevel.Height * cellSize;
             float aspect = topDown.aspect > 0 ? topDown.aspect : 16f / 9f;
             topDown.orthographicSize = Mathf.Max(h / 2f, w / 2f / aspect) * 1.05f;
             topDown.nearClipPlane = 0.1f;
@@ -189,7 +192,7 @@ namespace DreamForge.World
 
         Vector3 CellCentre(Vector2Int c) => new Vector3((c.x + 0.5f) * cellSize, 0, -(c.y + 0.5f) * cellSize);
 
-        bool InMap(Vector2Int c) => c.x >= 0 && c.y >= 0 && c.x < Level.Width && c.y < Level.Height;
+        bool InMap(Vector2Int c) => c.x >= 0 && c.y >= 0 && c.x < parsedLevel.Width && c.y < parsedLevel.Height;
 
         /// <summary>The open cell with the most open neighbours, nearest the middle of the map on ties.</summary>
         public static Vector2Int PickSpawn(Level lv)
@@ -219,10 +222,10 @@ namespace DreamForge.World
         void LogSummary(Vector2Int spawn)
         {
             var sb = new StringBuilder();
-            sb.Append($"[WALK] level {level}: {Level.Width}x{Level.Height}, cell {cellSize} m, wall height {wallHeight} m\n");
+            sb.Append($"[WALK] level {levelNumber}: {parsedLevel.Width}x{parsedLevel.Height}, cell {cellSize} m, wall height {wallHeight} m\n");
             sb.Append($"  open cells {meshes.OpenCells} (floor + ceiling quads), wall cells {meshes.WallCells}, " +
                       $"wall faces {meshes.WallFaces} (of them map edge {meshes.EdgeFaces}), vanishing walls {meshes.VanishingCells}\n");
-            sb.Append($"  ceiling: {(Level.Header.CeilingTile == -1 ? "sky (grey)" : "tile " + Level.Header.CeilingTile)}, " +
+            sb.Append($"  ceiling: {(parsedLevel.Header.CeilingTile == -1 ? "sky (grey)" : "tile " + parsedLevel.Header.CeilingTile)}, " +
                       $"spawn cell ({spawn.x}, {spawn.y})\n");
             sb.Append("  controls: click to capture the mouse, WASD/arrows, Shift to run, Tab top-down view, Esc release\n");
             sb.Append("  wall-type legend (map char, index, debug RGB, cells):");
