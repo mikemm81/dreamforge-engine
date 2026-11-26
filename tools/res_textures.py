@@ -16,8 +16,12 @@ Strahd's Possession (hdrlen 0, see blob()):
 Other type-6 blobs (column sprites with offset tables) are not handled here.
 
 usage: res_textures.py RESFILE OUTDIR --colors COLORS [--palette N]
+       res_textures.py RESFILE --colors COLORS [--palette N] --hash
+  --hash prints one line per texture instead of writing PNGs:
+    entry kind WxH sha256(palette indices) sha256(RGBA)
+  Pixels top row first; RGBA = palette entry scaled v*255//63 (as in the PNGs), alpha 255.
 """
-import os, struct, sys, argparse
+import os, struct, sys, argparse, hashlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from res_sprites import lzss, rle, png
 
@@ -50,40 +54,62 @@ def blob(d, e0, e1=None):
         return lzss(e, p, size, 0xFE)[0]
     raise ValueError(f'compression {comp}')
 
+def texture(d, e0, e1):
+    """Decode one entry and lay it out as an image: (kind, width, height, palette indices top row first),
+    or None if the entry is not a wall or floor/ceiling texture."""
+    b = blob(d, e0, e1)
+    if len(b) == 12290 and struct.unpack_from('<H', b, 0)[0] == 192:
+        col = b[2:]
+        return 'wall', 64, 192, bytes(col[x * 192 + y] for y in range(192) for x in range(64))
+    if len(b) == 8192 and d[e0 + 3:e0 + 5] == b'\0\0':
+        return 'wall', 64, 128, bytes(b[x * 128 + y] for y in range(128) for x in range(64))
+    if len(b) == TILE and (d[e0 + 2] == 5 or d[e0 + 3:e0 + 5] == b'\0\0'):  # M/P tile, or S
+        return 'flat', 64, 64, bytes(b)
+    return None
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('res'); ap.add_argument('out')
+    ap.add_argument('res'); ap.add_argument('out', nargs='?')
     ap.add_argument('--palette', type=int, default=0)
     ap.add_argument('--colors', required=True, help="the game's own COLORS file")
+    ap.add_argument('--hash', action='store_true', help='print hashes instead of writing PNGs')
     a = ap.parse_args()
+    if not a.hash and a.out is None:
+        ap.error('OUTDIR is required unless --hash is given')
     cd = open(a.colors, 'rb').read()
     pal = cd[1 + 768 * a.palette: 1 + 768 * (a.palette + 1)]
     d = open(a.res, 'rb').read()
     n = struct.unpack_from('<I', d, 0)[0]
     offs = struct.unpack_from(f'<{n}I', d, 4)
-    os.makedirs(a.out, exist_ok=True)
+    if not a.hash:
+        os.makedirs(a.out, exist_ok=True)
+    rgb = bytes(min(255, v * 255 // 63) for v in pal)   # the same scaling as png()
     walls = flats = bad = 0
     for i in range(n):
         e0 = offs[i]
         if d[e0:e0 + 2] != b'EH' or d[e0 + 2] not in (5, 6):
             continue
         try:
-            b = blob(d, e0, offs[i + 1] if i + 1 < n else len(d))
+            t = texture(d, e0, offs[i + 1] if i + 1 < n else len(d))
         except (IndexError, ValueError, struct.error) as ex:
             print(f'entry {i}: {ex}'); bad += 1; continue
-        if len(b) == 12290 and struct.unpack_from('<H', b, 0)[0] == 192:
-            col = b[2:]
-            pix = bytes(col[x * 192 + y] for y in range(192) for x in range(64))
-            png(os.path.join(a.out, f'{i:04d}_wall_64x192.png'), 64, 192, pix, pal, None)
+        if t is None:
+            continue
+        kind, w, h, pix = t
+        if kind == 'wall':
             walls += 1
-        elif len(b) == 8192 and d[e0 + 3:e0 + 5] == b'\0\0':
-            pix = bytes(b[x * 128 + y] for y in range(128) for x in range(64))
-            png(os.path.join(a.out, f'{i:04d}_wall_64x128.png'), 64, 128, pix, pal, None)
-            walls += 1
-        elif len(b) == TILE and (d[e0 + 2] == 5 or d[e0 + 3:e0 + 5] == b'\0\0'):  # M/P tile, or S
-            png(os.path.join(a.out, f'{i:04d}_flat_64x64.png'), 64, 64, b, pal, None)
+        else:
             flats += 1
-    print(f'exported {walls} walls, {flats} flats, {bad} errors into {a.out}')
+        if a.hash:
+            rgba = b''.join(rgb[3 * p:3 * p + 3] + b'\xff' for p in pix)
+            print(f'{i} {kind} {w}x{h} {hashlib.sha256(pix).hexdigest()} {hashlib.sha256(rgba).hexdigest()}')
+        else:
+            png(os.path.join(a.out, f'{i:04d}_{kind}_{w}x{h}.png'), w, h, pix, pal, None)
+    summary = f'{walls} walls, {flats} flats, {bad} errors'
+    if a.hash:
+        print(f'hashed {summary}', file=sys.stderr)
+    else:
+        print(f'exported {summary} into {a.out}')
 
 if __name__ == '__main__':
     main()
