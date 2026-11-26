@@ -47,25 +47,27 @@ namespace DreamForge.World
         float builtCell, builtHeight;
         bool builtTint;
 
-        void Start()
+        // Everything is set up in Awake, before the first frame is rendered, so the scene (which holds no
+        // camera of its own) has the player's camera from frame one on an ordinary Play.
+        void Awake()
         {
             try
             {
                 string path = DataPaths.Resolve(game, "LEVELS.DAT", localFolderOverride, out string error);
-                if (path == null) { Debug.LogError($"[WALK] {error}"); return; }
+                if (path == null) { Fail(error); return; }
                 parsedLevel = LevelsFile.Open(path).ReadLevel(levelNumber, LevelLayout.ForGame(game));
                 foreach (var w in parsedLevel.Warnings) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[WALK] Failed to read level {levelNumber}: {ex.GetType().Name}: {ex.Message}");
+                Fail($"Failed to read level {levelNumber}: {ex.GetType().Name}: {ex.Message}");
                 return;
             }
 
             if (material == null)
             {
                 var shader = Shader.Find("DreamForge/VertexColorUnlit");
-                if (shader == null) { Debug.LogError("[WALK] No material set and shader DreamForge/VertexColorUnlit not found."); return; }
+                if (shader == null) { Fail("No material set and shader DreamForge/VertexColorUnlit not found."); return; }
                 material = new Material(shader);
             }
 
@@ -186,6 +188,16 @@ namespace DreamForge.World
             player.Eye.enabled = !on;
             player.InputEnabled = !on;
             if (on) PlaceTopDownCamera();   // refit to the current window aspect
+        }
+
+        /// <summary>Logs the error and shows a plain camera, so a failed load never leaves the Game view camera-less.</summary>
+        void Fail(string message)
+        {
+            Debug.LogError($"[WALK] {message}");
+            var cam = new GameObject("FallbackCamera").AddComponent<Camera>();
+            cam.transform.SetParent(transform, false);
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = DebugPalette.Background;
         }
 
         // ---- helpers ----
