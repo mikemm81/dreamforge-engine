@@ -1,7 +1,9 @@
 {
     "name": "DreamForge.Runtime",
     "rootNamespace": "DreamForge",
-    "references": [],
+    "references": [
+        "Unity.InputSystem"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
