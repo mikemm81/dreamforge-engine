@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Linq;
 using System.Text;
 using DreamForge.Data;
 using DreamForge.Formats;
@@ -22,33 +23,54 @@ namespace DreamForge.Diagnostics
         [Serializable]
         public struct Face
         {
+            [Tooltip("Level the face belongs to; only faces of the loaded level are checked.")]
+            public int level;
             public string name;
             [Tooltip("The wall cell.")] public Vector2Int wall;
             [Tooltip("The open cell it is seen from (a neighbour).")] public Vector2Int from;
             [Tooltip("Expected texture numbers, lower row: viewer's left, then right.")]
             public int expectLeft, expectRight;
+            [Tooltip("Expected texture numbers, upper row (two-row levels); -1 = not checked.")]
+            public int expectUpperLeft, expectUpperRight;
+        }
+
+        [Serializable]
+        public struct Floor
+        {
+            public int level;
+            [Tooltip("Open cell whose floor is compared with the floor tile.")] public Vector2Int cell;
         }
 
         [SerializeField] LevelLoader loader;
-        [Tooltip("Only run when the loader shows this level (the named faces below are for it).")]
-        [SerializeField] int forLevel = 1;
         [SerializeField] string game = "menzo";
         [Tooltip("Optional local folder that replaces data-path.txt. Leave empty in anything you commit.")]
         [SerializeField] string localFolderOverride = "";
         [SerializeField] Face[] faces =
         {
-            new Face { name = "door, from inside",       wall = new Vector2Int(6, 6), from = new Vector2Int(6, 5), expectLeft = 10, expectRight = 11 },
-            new Face { name = "door, from outside",      wall = new Vector2Int(6, 6), from = new Vector2Int(6, 7), expectLeft = 10, expectRight = 11 },
-            new Face { name = "fireplace",               wall = new Vector2Int(1, 4), from = new Vector2Int(2, 4), expectLeft = 32, expectRight = 33 },
-            new Face { name = "shelves left",            wall = new Vector2Int(4, 0), from = new Vector2Int(4, 1), expectLeft = 30, expectRight = 31 },
-            new Face { name = "shelves right",           wall = new Vector2Int(5, 0), from = new Vector2Int(5, 1), expectLeft = 30, expectRight = 31 },
-            new Face { name = "cell (5,6) from inside",  wall = new Vector2Int(5, 6), from = new Vector2Int(5, 5), expectLeft = 19, expectRight = 15 },
-            new Face { name = "cell (5,6) from outside", wall = new Vector2Int(5, 6), from = new Vector2Int(5, 7), expectLeft = 16, expectRight = 19 },
+            new Face { level = 1, name = "door, from inside",       wall = new Vector2Int(6, 6), from = new Vector2Int(6, 5), expectLeft = 10, expectRight = 11, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 1, name = "door, from outside",      wall = new Vector2Int(6, 6), from = new Vector2Int(6, 7), expectLeft = 10, expectRight = 11, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 1, name = "fireplace",               wall = new Vector2Int(1, 4), from = new Vector2Int(2, 4), expectLeft = 32, expectRight = 33, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 1, name = "shelves left",            wall = new Vector2Int(4, 0), from = new Vector2Int(4, 1), expectLeft = 30, expectRight = 31, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 1, name = "shelves right",           wall = new Vector2Int(5, 0), from = new Vector2Int(5, 1), expectLeft = 30, expectRight = 31, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 1, name = "cell (5,6) from inside",  wall = new Vector2Int(5, 6), from = new Vector2Int(5, 5), expectLeft = 19, expectRight = 15, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 1, name = "cell (5,6) from outside", wall = new Vector2Int(5, 6), from = new Vector2Int(5, 7), expectLeft = 16, expectRight = 19, expectUpperLeft = -1, expectUpperRight = -1 },
+            new Face { level = 0, name = "two-row walls (1,0)",     wall = new Vector2Int(1, 0), from = new Vector2Int(1, 1), expectLeft = 74, expectRight = 75, expectUpperLeft = 73, expectUpperRight = 76 },
+            new Face { level = 0, name = "masked two-row (2,2)",    wall = new Vector2Int(2, 2), from = new Vector2Int(1, 2), expectLeft = 55, expectRight = 54, expectUpperLeft = 61, expectUpperRight = 60 },
+            new Face { level = 0, name = "heavily masked (65,62)",  wall = new Vector2Int(65, 62), from = new Vector2Int(64, 62), expectLeft = 63, expectRight = 64, expectUpperLeft = 60, expectUpperRight = 61 },
         };
-        [Tooltip("Open cell whose floor is compared with the floor tile (provisional orientation).")]
-        [SerializeField] Vector2Int floorCell = new Vector2Int(6, 3);
+        [SerializeField] Floor[] floors =
+        {
+            new Floor { level = 1, cell = new Vector2Int(6, 3) },
+            new Floor { level = 0, cell = new Vector2Int(1, 1) },
+        };
 
         const int FaceWidth = 128, RowTexels = WallTexture.WallHeight, TileTexels = WallTexture.TileSide;
+
+        /// <summary>
+        /// Clear colour for face checks. The camera's far plane sits just behind the face, so a cut-out
+        /// (transparent) pixel of a masked wall must come out exactly this colour.
+        /// </summary>
+        static readonly byte[] Clear = { 255, 0, 255, 255 };
 
         IEnumerator Start()
         {
@@ -68,7 +90,9 @@ namespace DreamForge.Diagnostics
         {
             if (loader == null || loader.ParsedLevel == null) { Debug.LogWarning("[CHECK] no loaded level"); return; }
             var lv = loader.ParsedLevel;
-            if (lv.Index != forLevel) { Debug.Log($"[CHECK] skipped: level {lv.Index} is not {forLevel}"); return; }
+            var levelFaces = faces.Where(f => f.level == lv.Index).ToArray();
+            var levelFloors = floors.Where(f => f.level == lv.Index).ToArray();
+            if (levelFaces.Length + levelFloors.Length == 0) { Debug.Log($"[CHECK] skipped: no named faces for level {lv.Index}"); return; }
             if (!loader.IsTextured) { Debug.LogWarning("[CHECK] skipped: the level is not textured"); return; }
             float cell = loader.CellSize, row = loader.RowHeight;
             if (!Mathf.Approximately(row, cell * RowTexels / FaceWidth))
@@ -87,7 +111,7 @@ namespace DreamForge.Diagnostics
 
             int rows = LevelTextures.Rows(lv.Header), pass = 0, fail = 0;
             var sb = new StringBuilder($"[CHECK] level {lv.Index}: named wall faces rendered at 1 pixel per texel vs decoded textures\n");
-            foreach (var f in faces)
+            foreach (var f in levelFaces)
             {
                 int dx = f.wall.x - f.from.x, dy = f.wall.y - f.from.y;
                 if (Math.Abs(dx) + Math.Abs(dy) != 1 || !lv.At(f.from.x, f.from.y).IsOpen || lv.At(f.wall.x, f.wall.y).IsOpen)
@@ -100,42 +124,62 @@ namespace DreamForge.Diagnostics
                 int face = LevelTextures.FaceTowards(-dx, -dy);
                 var wf = lv.Header.WallTypes[type].Faces[face];
                 int nl = LevelTextures.Number(wf, 0, 0), nr = LevelTextures.Number(wf, 0, 1);
+                int ul = LevelTextures.Number(wf, 1, 0), ur = LevelTextures.Number(wf, 1, 1);
 
                 // Expected: the face's textures side by side, upper row above lower, top row first.
+                // Walls are decoded with WallTexture, masked walls with ColumnShape (both checked against
+                // the Python tools); cut-out pixels are expected to show the clear colour.
                 int w = FaceWidth, h = RowTexels * rows;
                 var expected = new byte[w * h * 4];
+                for (int i = 0; i < w * h; i++) Buffer.BlockCopy(Clear, 0, expected, i * 4, 4);
                 bool resolved = true;
+                int maskedHalves = 0, cutOut = 0;
                 for (int r = 0; r < rows; r++)
                 for (int half = 0; half < 2; half++)
                 {
                     int entry = loader.Textures.WallEntry(type, face, r, half);
                     if (entry < 0) { resolved = false; continue; }
-                    byte[] rgba = WallTexture.Decode(res, res.Entries[entry]).Image.ToRgba(pal);
+                    byte[] rgba = HalfImage(res, entry, pal, out bool masked);
+                    if (masked) maskedHalves++;
                     int y0 = (rows - 1 - r) * RowTexels;
                     for (int y = 0; y < RowTexels; y++)
-                        Buffer.BlockCopy(rgba, y * 64 * 4, expected, ((y0 + y) * w + half * 64) * 4, 64 * 4);
+                    for (int x = 0; x < 64; x++)
+                    {
+                        int s = (y * 64 + x) * 4;
+                        if (rgba[s + 3] == 0) { cutOut++; continue; }
+                        Buffer.BlockCopy(rgba, s, expected, ((y0 + y) * w + half * 64 + x) * 4, 4);
+                    }
                 }
 
                 Vector3 forward = LevelGeometryBuilder.GridDir(dx, dy);
                 Vector3 centre = LevelGeometryBuilder.GridToWorld(f.from.x + 0.5f + dx * 0.5f, f.from.y + 0.5f + dy * 0.5f,
                                                                   cell, rows * row / 2f);
-                byte[] got = Render(centre - forward * (cell * 0.4f), Quaternion.LookRotation(forward, Vector3.up),
-                                    w, h, row * rows / 2f, cell);
+                // Far plane just behind the face: whatever shows through a cut-out pixel is the clear colour.
+                float dist = cell * 0.4f;
+                byte[] got = Render(centre - forward * dist, Quaternion.LookRotation(forward, Vector3.up),
+                                    w, h, row * rows / 2f, dist + 0.02f);
                 int diff = Compare(expected, got, out int maxDelta, out int firstAt);
-                bool numbersOk = nl == f.expectLeft && nr == f.expectRight;
+                bool upperChecked = rows == 2 && f.expectUpperLeft >= 0;
+                bool numbersOk = nl == f.expectLeft && nr == f.expectRight &&
+                                 (!upperChecked || (ul == f.expectUpperLeft && ur == f.expectUpperRight));
                 bool ok = numbersOk && resolved && diff == 0;
                 if (ok) pass++; else fail++;
                 string file = $"{Slug(f.name)}.png";
                 File.WriteAllBytes(Path.Combine(outDir, file), SideBySide(got, expected, w, h));
+                string numbers = $"lower {nl}|{nr} (expected {f.expectLeft}|{f.expectRight})" +
+                                 (upperChecked ? $", upper {ul}|{ur} (expected {f.expectUpperLeft}|{f.expectUpperRight})" : "");
+                string mask = maskedHalves > 0 ? $", {maskedHalves} masked half(s) with {cutOut} cut-out pixels" : "";
                 sb.Append($"  {(ok ? "PASS" : "FAIL")} {f.name}: wall ({f.wall.x},{f.wall.y}) type {type} face {face}, " +
-                          $"textures {nl}|{nr} (expected {f.expectLeft}|{f.expectRight}), {w}x{h} px, " +
+                          $"{numbers}, {w}x{h} px{mask}, " +
                           (diff == 0 ? "pixel-identical" : $"{diff} pixels differ (max channel delta {maxDelta}, first at x={firstAt % w} y={firstAt / w})") +
                           $"  [{file}: render | expected]\n");
             }
 
             // Floor: straight down with +Z (towards y+1) at the top of the image and +X on the right. The tile's
             // top row lies towards y-1, so from here it appears flipped vertically.
+            foreach (var fl in levelFloors)
             {
+                var floorCell = fl.cell;
                 int entry = loader.Textures.TileEntry(lv.Header.FloorTile);
                 byte[] tile = WallTexture.Decode(res, res.Entries[entry]).Image.ToRgba(pal);
                 var expected = new byte[tile.Length];
@@ -145,14 +189,34 @@ namespace DreamForge.Diagnostics
                 byte[] got = Render(c, Quaternion.Euler(90f, 0f, 0f), TileTexels, TileTexels, cell / 2f, row);
                 int diff = Compare(expected, got, out int maxDelta, out int firstAt);
                 if (diff == 0) pass++; else fail++;
-                File.WriteAllBytes(Path.Combine(outDir, "floor.png"), SideBySide(got, expected, TileTexels, TileTexels));
+                File.WriteAllBytes(Path.Combine(outDir, $"floor_level{lv.Index}.png"), SideBySide(got, expected, TileTexels, TileTexels));
                 sb.Append($"  {(diff == 0 ? "PASS" : "FAIL")} floor cell ({floorCell.x},{floorCell.y}): tile {lv.Header.FloorTile} (RES4 {entry}), " +
                           (diff == 0 ? "pixel-identical" : $"{diff} pixels differ (max delta {maxDelta})") +
-                          " to the tile laid top row towards y-1 (axes match DOSBox; mirror/180 degrees unknown; checks our UVs)  [floor.png]\n");
+                          $" to the tile laid top row towards y-1 (axes match DOSBox; mirror/180 degrees unknown; checks our UVs)  [floor_level{lv.Index}.png]\n");
             }
 
             sb.Append($"  {pass} passed, {fail} failed; images in {outDir}");
             if (fail == 0) Debug.Log(sb.ToString()); else Debug.LogWarning(sb.ToString());
+        }
+
+        /// <summary>
+        /// One 64 x 192 half-row image (RGBA, top row first), decoded here independently of the level's
+        /// texture cache: a wall texture, or a column shape from its canvas's top-left (alpha 0 = cut out).
+        /// </summary>
+        static byte[] HalfImage(ResFile res, int entry, Palette pal, out bool masked)
+        {
+            var e = res.Entries[entry];
+            masked = e.Kind == ResEntryKind.Eh && e.Type == 6;
+            if (!masked) return WallTexture.Decode(res, e).Image.ToRgba(pal);
+            var r = ResCompression.Decode(res.ReadPayload(e), e.Compression, (int)e.DecodedSize, out byte[] data);
+            if (!r.Ok) throw new InvalidDataException($"entry {entry}: {r.Message}");
+            var o = new byte[64 * RowTexels * 4];
+            if (ColumnShape.IsStub(data)) return o;
+            var s = ColumnShape.Decode(data);
+            byte[] src = s.ToRgba(pal);
+            for (int y = 0; y < Math.Min(RowTexels, s.Height); y++)
+                Buffer.BlockCopy(src, y * s.Width * 4, o, y * 64 * 4, Math.Min(64, s.Width) * 4);
+            return o;
         }
 
         /// <summary>Renders the level with an orthographic camera; returns RGBA, top row first.</summary>
@@ -174,7 +238,7 @@ namespace DreamForge.Diagnostics
                 cam.allowHDR = false;
                 cam.allowMSAA = false;
                 cam.clearFlags = CameraClearFlags.SolidColor;
-                cam.backgroundColor = Color.black;
+                cam.backgroundColor = new Color32(Clear[0], Clear[1], Clear[2], Clear[3]);
                 cam.transform.SetPositionAndRotation(pos, rot);
                 cam.targetTexture = rt;
                 cam.Render();

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Unlit URP shader for level geometry: texture x vertex colour, no lighting.
 // Debug colours use the default white texture; textured walls use white vertex colours.
+// With _ALPHATEST_ON (masked walls: column shapes used as faces) pixels with alpha < 0.5 are cut out.
 Shader "DreamForge/LevelUnlit"
 {
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
+        [Toggle(_ALPHATEST_ON)] _AlphaClip ("Alpha clip (masked walls)", Float) = 0
     }
 
     SubShader
@@ -40,6 +42,15 @@ Shader "DreamForge/LevelUnlit"
             o.color = input.color;
             return o;
         }
+
+        half4 Sample(Varyings input)
+        {
+            half4 t = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv);
+            #if defined(_ALPHATEST_ON)
+            clip(t.a - 0.5h);
+            #endif
+            return t;
+        }
         ENDHLSL
 
         Pass
@@ -52,15 +63,16 @@ Shader "DreamForge/LevelUnlit"
             HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment Frag
+            #pragma shader_feature_local _ALPHATEST_ON
             half4 Frag(Varyings input) : SV_Target
             {
-                half4 t = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv);
+                half4 t = Sample(input);
                 return half4(t.rgb * input.color.rgb, 1);
             }
             ENDHLSL
         }
 
-        // Needed when the renderer uses a depth prepass or depth priming.
+        // Needed when the renderer uses a depth prepass or depth priming; cuts out like the colour pass.
         Pass
         {
             Name "DepthOnly"
@@ -72,7 +84,8 @@ Shader "DreamForge/LevelUnlit"
             HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment Frag
-            half Frag(Varyings input) : SV_Target { return 0; }
+            #pragma shader_feature_local _ALPHATEST_ON
+            half Frag(Varyings input) : SV_Target { Sample(input); return 0; }
             ENDHLSL
         }
     }

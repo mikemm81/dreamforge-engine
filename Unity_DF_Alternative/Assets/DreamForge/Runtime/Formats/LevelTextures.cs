@@ -108,14 +108,14 @@ namespace DreamForge.Formats
         }
 
         /// <summary>
-        /// RES4 entry to draw for one half-row of a face, or Placeholder. Shapes are placeholders until
-        /// masked walls are drawn; only Missing faces are warnings.
+        /// RES4 entry to draw for one half-row of a face: a wall texture, or a column shape drawn as a
+        /// masked wall. Placeholder (with a warning) only when it cannot be resolved.
         /// </summary>
         public int WallEntry(int wallType, int face, int row, int half)
         {
             var r = Resolve(wallType, face, row, half);
-            if (r.Kind == FaceTextureKind.Wall) return r.Entry;
-            if (r.Kind == FaceTextureKind.Missing) warnings.Add($"wall type {wallType} face {face}: {r.Problem}");
+            if (r.Kind != FaceTextureKind.Missing) return r.Entry;
+            warnings.Add($"wall type {wallType} face {face}: {r.Problem}");
             return Placeholder;
         }
 

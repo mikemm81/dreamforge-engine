@@ -179,7 +179,11 @@ namespace DreamForge.World
             PlaceTopDownCamera();
 
             if (IsTextured)
+            {
                 foreach (var w in levelTextures.Warnings) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
+                foreach (var w in textureCache.Warnings.Distinct()) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
+                textureCache.Warnings.Clear();
+            }
         }
 
         void Part(string name, MeshPart part, bool collide)
@@ -310,7 +314,8 @@ namespace DreamForge.World
                 string ceil = h.CeilingTile == -1 ? "sky (none drawn)" : $"tile {h.CeilingTile} -> RES4 {levelTextures.TileEntry(h.CeilingTile)}";
                 sb.Append($"  textured: wall set {h.WallSet}, palette {Palette3D}; floor tile {h.FloorTile} -> RES4 " +
                           $"{levelTextures.TileEntry(h.FloorTile)}, ceiling {ceil} (tile axes match DOSBox; mirror/180 unknown); " +
-                          $"{meshes.Walls.Keys.Length} wall textures; placeholder quads {meshes.PlaceholderQuads}\n");
+                          $"wall textures {meshes.Walls.Keys.Count(k => k >= 0)} (masked {meshes.Walls.Keys.Count(textureCache.IsMasked)}); " +
+                          $"placeholder quads {meshes.PlaceholderQuads}\n");
             }
             else
                 sb.Append($"  debug colours; ceiling: {(h.CeilingTile == -1 ? "sky (grey)" : "tile " + h.CeilingTile)}\n");

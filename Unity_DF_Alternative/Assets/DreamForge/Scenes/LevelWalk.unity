@@ -186,46 +186,94 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: DreamForge.Runtime::DreamForge.Diagnostics.FacePixelCheck
   loader: {fileID: 1671125377}
-  forLevel: 1
   game: menzo
   localFolderOverride: 
   faces:
-  - name: door, from inside
+  - level: 1
+    name: door, from inside
     wall: {x: 6, y: 6}
     from: {x: 6, y: 5}
     expectLeft: 10
     expectRight: 11
-  - name: door, from outside
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 1
+    name: door, from outside
     wall: {x: 6, y: 6}
     from: {x: 6, y: 7}
     expectLeft: 10
     expectRight: 11
-  - name: fireplace
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 1
+    name: fireplace
     wall: {x: 1, y: 4}
     from: {x: 2, y: 4}
     expectLeft: 32
     expectRight: 33
-  - name: shelves left
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 1
+    name: shelves left
     wall: {x: 4, y: 0}
     from: {x: 4, y: 1}
     expectLeft: 30
     expectRight: 31
-  - name: shelves right
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 1
+    name: shelves right
     wall: {x: 5, y: 0}
     from: {x: 5, y: 1}
     expectLeft: 30
     expectRight: 31
-  - name: cell (5,6) from inside
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 1
+    name: cell (5,6) from inside
     wall: {x: 5, y: 6}
     from: {x: 5, y: 5}
     expectLeft: 19
     expectRight: 15
-  - name: cell (5,6) from outside
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 1
+    name: cell (5,6) from outside
     wall: {x: 5, y: 6}
     from: {x: 5, y: 7}
     expectLeft: 16
     expectRight: 19
-  floorCell: {x: 6, y: 3}
+    expectUpperLeft: -1
+    expectUpperRight: -1
+  - level: 0
+    name: two-row walls (1,0)
+    wall: {x: 1, y: 0}
+    from: {x: 1, y: 1}
+    expectLeft: 74
+    expectRight: 75
+    expectUpperLeft: 73
+    expectUpperRight: 76
+  - level: 0
+    name: masked two-row (2,2)
+    wall: {x: 2, y: 2}
+    from: {x: 1, y: 2}
+    expectLeft: 55
+    expectRight: 54
+    expectUpperLeft: 61
+    expectUpperRight: 60
+  - level: 0
+    name: heavily masked (65,62)
+    wall: {x: 65, y: 62}
+    from: {x: 64, y: 62}
+    expectLeft: 63
+    expectRight: 64
+    expectUpperLeft: 60
+    expectUpperRight: 61
+  floors:
+  - level: 1
+    cell: {x: 6, y: 3}
+  - level: 0
+    cell: {x: 1, y: 1}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
