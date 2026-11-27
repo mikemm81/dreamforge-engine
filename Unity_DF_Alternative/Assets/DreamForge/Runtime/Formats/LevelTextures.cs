@@ -1,23 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Which RES4 entries a level's walls, floor and ceiling use.
 // Documented (docs/formats/levels.md): the 64 wall types with four faces of four s16 texture numbers
-// (lower-left, lower-right, upper-left, upper-right; that order is marked "likely"), numbers counted
-// from the start of the wall set, header byte 0x009 (0 = two rows), the floor and ceiling tile numbers.
-// Everything marked INFERRED below is not in docs/formats; it was worked out from the game data.
+// (lower-left, lower-right, upper-left, upper-right), numbers counted from the start of the wall set,
+// header byte 0x009 (0 = two rows), the floor and ceiling tile numbers. The wall-set starts and the tile
+// start come from INIT (docs/formats/types.md). Marked INFERRED below: worked out from the game data.
 using System.Collections.Generic;
 
 namespace DreamForge.Formats
 {
+    public enum FaceTextureKind
+    {
+        /// <summary>A type-5 wall texture.</summary>
+        Wall,
+        /// <summary>A type-6 column shape used as a (masked) wall; expected, not an error.</summary>
+        Shape,
+        /// <summary>Cannot be resolved: outside the wall set's block, outside RES4, or another kind of entry.</summary>
+        Missing,
+    }
+
+    public struct FaceTexture
+    {
+        public int Number;
+        public int Entry;
+        public FaceTextureKind Kind;
+        public string Problem;
+    }
+
     public sealed class LevelTextures
     {
-        /// <summary>Key for a face or tile whose texture cannot be resolved; drawn as a placeholder.</summary>
+        /// <summary>Key for a face or tile that is not drawn from a texture (yet); drawn as a placeholder.</summary>
         public const int Placeholder = -2;
-
-        /// <summary>
-        /// INFERRED from data, not in docs: wall set 0 starts at RES4 entry 0. Level 1's texture numbers
-        /// (all set 0) land on one consistent run of wall textures. Where other sets start is unknown.
-        /// </summary>
-        public static int? WallSetStart(int wallSet) => wallSet == 0 ? 0 : (int?)null;
 
         /// <summary>
         /// INFERRED from data, not in docs: face f of a wall cell is its side facing
@@ -45,55 +57,74 @@ namespace DreamForge.Formats
 
         readonly ResFile res;
         readonly LevelHeader header;
-        readonly int? setStart;
-        readonly List<int> tileEntries = new List<int>();
+        readonly GameInit init;
+        readonly bool hasSet;
+        readonly int setStart, setEnd;
         readonly HashSet<string> warnings = new HashSet<string>();
 
-        /// <summary>Distinct problems met while resolving (unknown wall set, non-texture entries, ...).</summary>
+        /// <summary>Distinct problems met while resolving (missing textures, unknown wall set, ...).</summary>
         public IEnumerable<string> Warnings => warnings;
+        public int WallSetStart => setStart;
+        public int WallSetEnd => setEnd;
 
-        public LevelTextures(ResFile res4, LevelHeader header)
+        public LevelTextures(ResFile res4, LevelHeader header, GameInit init)
         {
             res = res4;
             this.header = header;
-            setStart = WallSetStart(header.WallSet);
-            if (setStart == null)
-                warnings.Add($"wall set {header.WallSet}: where it starts in RES4 is unknown (only set 0 is known)");
-            // INFERRED from data, not in docs: tile number n is the n-th tile entry (stated size 4,098) in RES4.
-            foreach (var e in res.Entries)
-                if (WallTexture.IsTexture(e) && e.UnpackedSize == ResEntry.TileStatedSize)
-                    tileEntries.Add(e.Index);
+            this.init = init;
+            hasSet = init.WallSetRange(header.WallSet, out setStart, out setEnd);
+            if (!hasSet)
+                warnings.Add($"wall set {header.WallSet} is not in INIT's table of {init.WallSetCount} sets");
+            if (init.TileStart < 0 || init.TileStart >= res.Entries.Count || !IsTile(res.Entries[init.TileStart]))
+                warnings.Add($"INIT's tile start {init.TileStart} is not a tile entry in RES4");
         }
 
-        public int TileCount => tileEntries.Count;
+        static bool IsTile(ResEntry e) => WallTexture.IsTexture(e) && e.UnpackedSize == ResEntry.TileStatedSize;
+        static bool IsWall(ResEntry e) => WallTexture.IsTexture(e) && e.UnpackedSize == WallTexture.WallStatedSize;
+        static bool IsShape(ResEntry e) => e.Kind == ResEntryKind.Eh && e.Type == 6;
 
-        /// <summary>RES4 entry for one half-row of a face of a wall type, or Placeholder.</summary>
+        /// <summary>What one half-row of a face of a wall type shows.</summary>
+        public FaceTexture Resolve(int wallType, int face, int row, int half)
+        {
+            int number = Number(header.WallTypes[wallType].Faces[face], row, half);
+            var r = new FaceTexture { Number = number, Entry = -1, Kind = FaceTextureKind.Missing };
+            if (!hasSet) { r.Problem = $"wall set {header.WallSet} unknown"; return r; }
+            int entry = setStart + number;
+            r.Entry = entry;
+            if (number < 0 || entry >= setEnd)
+                r.Problem = $"texture {number} is outside wall set {header.WallSet} (entries {setStart}-{setEnd - 1})";
+            else if (entry >= res.Entries.Count)
+                r.Problem = $"texture {number} (entry {entry}) is outside RES4";
+            else if (IsWall(res.Entries[entry]))
+                r.Kind = FaceTextureKind.Wall;
+            else if (IsShape(res.Entries[entry]))
+                r.Kind = FaceTextureKind.Shape;
+            else
+            {
+                var e = res.Entries[entry];
+                r.Problem = $"texture {number} (entry {entry}) is {(e.Kind == ResEntryKind.Eh ? $"EH type {e.Type}" : e.Kind.ToString())}";
+            }
+            return r;
+        }
+
+        /// <summary>
+        /// RES4 entry to draw for one half-row of a face, or Placeholder. Shapes are placeholders until
+        /// masked walls are drawn; only Missing faces are warnings.
+        /// </summary>
         public int WallEntry(int wallType, int face, int row, int half)
         {
-            var f = header.WallTypes[wallType].Faces[face];
-            int number = Number(f, row, half);
-            if (setStart == null) return Placeholder;
-            int entry = setStart.Value + number;
-            if (entry < 0 || entry >= res.Entries.Count)
-            {
-                warnings.Add($"wall type {wallType} face {face}: texture {number} is outside RES4");
-                return Placeholder;
-            }
-            var e = res.Entries[entry];
-            if (!WallTexture.IsTexture(e) || e.UnpackedSize != WallTexture.WallStatedSize)
-            {
-                string what = e.Kind == ResEntryKind.Eh ? $"EH type {e.Type}" : e.Kind.ToString();
-                warnings.Add($"texture {number} (entry {entry}) is {what}, not a type-5 wall; shown as a placeholder");
-                return Placeholder;
-            }
-            return entry;
+            var r = Resolve(wallType, face, row, half);
+            if (r.Kind == FaceTextureKind.Wall) return r.Entry;
+            if (r.Kind == FaceTextureKind.Missing) warnings.Add($"wall type {wallType} face {face}: {r.Problem}");
+            return Placeholder;
         }
 
-        /// <summary>RES4 entry for floor/ceiling tile <paramref name="n"/>, or Placeholder. -1 (sky) is the caller's job.</summary>
+        /// <summary>RES4 entry for floor/ceiling tile <paramref name="n"/> (INIT tile start + n), or Placeholder. -1 (sky) is the caller's job.</summary>
         public int TileEntry(int n)
         {
-            if (n >= 0 && n < tileEntries.Count) return tileEntries[n];
-            warnings.Add($"tile {n} is outside the {tileEntries.Count} tiles in RES4");
+            int entry = init.TileStart + n;
+            if (n >= 0 && entry < res.Entries.Count && IsTile(res.Entries[entry])) return entry;
+            warnings.Add($"tile {n} (entry {entry}) is not a tile entry in RES4");
             return Placeholder;
         }
     }

@@ -342,7 +342,31 @@ namespace DreamForge.Formats
         {
             if (index < 0 || index >= Count)
                 throw new ArgumentOutOfRangeException(nameof(index), $"level {index}; the file has {Count}");
-            return Level.Parse(dir.ReadEntry(dir.Entries[index]), index, layout);
+            return Level.Parse(ReadRaw(index), index, layout);
+        }
+
+        /// <summary>The level's bytes as stored (prefix included).</summary>
+        public byte[] ReadRaw(int index)
+        {
+            if (index < 0 || index >= Count)
+                throw new ArgumentOutOfRangeException(nameof(index), $"level {index}; the file has {Count}");
+            return dir.ReadEntry(dir.Entries[index]);
+        }
+
+        /// <summary>
+        /// Levels whose bytes are identical to another level's: the placeholders (21 copies of one
+        /// 12 x 12 level in M). Not every 12 x 12 level is a placeholder.
+        /// </summary>
+        public bool[] Placeholders()
+        {
+            var raw = new byte[Count][];
+            for (int i = 0; i < Count; i++) raw[i] = ReadRaw(i);
+            var result = new bool[Count];
+            for (int i = 0; i < Count; i++)
+            for (int j = 0; j < Count; j++)
+                if (i != j && raw[i].Length == raw[j].Length && System.Linq.Enumerable.SequenceEqual(raw[i], raw[j]))
+                { result[i] = true; break; }
+            return result;
         }
     }
 }

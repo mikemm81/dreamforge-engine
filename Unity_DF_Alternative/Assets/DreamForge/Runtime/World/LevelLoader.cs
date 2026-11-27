@@ -103,7 +103,7 @@ namespace DreamForge.World
             LogSummary(spawn);
         }
 
-        /// <summary>RES4 + COLORS. If either is missing the level still loads, in debug colours.</summary>
+        /// <summary>RES4 + COLORS + INIT. If any is missing the level still loads, in debug colours.</summary>
         void LoadTextures()
         {
             ResFile res4 = null;
@@ -112,15 +112,18 @@ namespace DreamForge.World
             {
                 string resPath = DataPaths.Resolve(game, "RES4", localFolderOverride, out string e1);
                 string colorsPath = DataPaths.Resolve(game, "COLORS", localFolderOverride, out string e2);
-                if (resPath == null || colorsPath == null)
-                    Debug.LogWarning($"[WALK] no textures, using debug colours: {e1 ?? e2}");
+                string initPath = DataPaths.Resolve(game, "INIT", localFolderOverride, out string e3);
+                if (resPath == null || colorsPath == null || initPath == null)
+                    Debug.LogWarning($"[WALK] no textures, using debug colours: {e1 ?? e2 ?? e3}");
                 else
                 {
                     res4 = ResFile.Open(resPath);
                     var colors = ColorsFile.Open(colorsPath);
                     foreach (var w in colors.Warnings) Debug.LogWarning($"[WALK] COLORS: {w}");
                     palette = colors.Get(Palette3D);
-                    levelTextures = new LevelTextures(res4, parsedLevel.Header);
+                    var init = GameInit.Open(initPath);
+                    foreach (var w in init.Warnings) Debug.LogWarning($"[WALK] INIT: {w}");
+                    levelTextures = new LevelTextures(res4, parsedLevel.Header, init);
                 }
             }
             catch (Exception ex)

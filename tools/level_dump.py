@@ -6,6 +6,8 @@ usage: level_dump.py GAMEDIR check            validate all 56 levels (summary)
        level_dump.py GAMEDIR level N          print one level's spawns, records and trigger lists
        level_dump.py GAMEDIR map N            print one level's header, ASCII map, wall types and records
                                              (same text as the Unity LevelMapLogger, for diffing)
+       level_dump.py GAMEDIR textures         resolve every real level's wall faces and tiles through INIT
+                                             (same text as the Unity TextureResolutionLogger, for diffing)
        level_dump.py GAMEDIR savelev FILE     parse a saved LEVnnn.DAT
 
 Layouts: docs/formats/levels.md.
@@ -194,11 +196,63 @@ def map_text(L, i):
             q['x'], q['y'], q['kind'], q['flags'], q['trig'], q['trig2'], q['a6'], q['a7'], q['tex'], r[10], r[11], r[12], r[13], r[14], r[15]))
     return '\n'.join(out)
 
+
+def textures_report(gd):
+    """One line per real level: every half-row of every face of every used wall type resolved through
+    INIT's wall-set table (docs/formats/types.md, levels.md) to a RES4 entry, classified W (type-5 wall),
+    S (type-6 shape) or M (missing); plus the floor and ceiling tiles. Same text as the Unity
+    TextureResolutionLogger, for diffing."""
+    import hashlib
+    ini = open(os.path.join(gd, 'INIT'), 'rb').read()
+    tile_start, = struct.unpack_from('<H', ini, 0x16)
+    table = struct.unpack_from('<15H', ini, 0x2A)
+    r4 = open(os.path.join(gd, 'RES4'), 'rb').read()
+    n, = struct.unpack_from('<I', r4, 0)
+    offs = struct.unpack_from('<%dI' % n, r4, 4)
+    def kind(e):
+        if not 0 <= e < n or r4[offs[e]:offs[e] + 2] != b'EH': return 'M'
+        t = r4[offs[e] + 2]
+        if t == 5: return {12290: 'W', 4098: 'T'}.get(struct.unpack_from('<I', r4, offs[e] + 6)[0], 'M')
+        return 'S' if t == 6 else 'M'
+    out = []
+    all_levels = levels(gd)
+    copies = collections.Counter(all_levels)
+    for i, raw in enumerate(all_levels):
+        if copies[raw] > 1:  # placeholders: identical copies of one level (21 in M); real 12 x 12 levels exist
+            continue
+        L = level(raw); H = L['hdr']
+        ws = H['wallset']; rows = 2 if H['one_story'] == 0 else 1
+        start, end = (table[ws], table[ws + 1]) if ws < 14 else (None, None)
+        used = sorted({c & 0x3f for c in L['cells'][0::2]} - {0})
+        lines = []; cnt = collections.Counter()
+        for t in used:
+            for f in range(4):
+                for r in range(rows):
+                    for h in range(2):
+                        num = H['walls'][t][4 * f + 2 * r + h]
+                        if start is None:
+                            e, k = -1, 'M'
+                        else:
+                            e = start + num
+                            k = kind(e) if 0 <= num and e < end else 'M'
+                            k = k if k in 'WS' else 'M'
+                        cnt[k] += 1
+                        lines.append('%d %d %d %d %d %d %s\n' % (t, f, r, h, num, e, k))
+        def tile(m):
+            if m == -1: return 'none'
+            return str(tile_start + m) if m >= 0 and kind(tile_start + m) == 'T' else '?'
+        digest = hashlib.sha256(''.join(lines).encode('ascii')).hexdigest()[:16]
+        out.append('%2d set %2d [%d,%d) rows %d types %2d: halves %4d walls %4d shapes %4d missing %d | floor %d->%s ceiling %d->%s | %s' % (
+            i, ws, start, end, rows, len(used), sum(cnt.values()), cnt['W'], cnt['S'], cnt['M'],
+            H['floor'], tile(H['floor']), H['ceiling'], tile(H['ceiling']), digest))
+    return '\n'.join(out)
+
 if __name__ == '__main__':
     gd, cmd = sys.argv[1], sys.argv[2]
     if cmd == 'check': check(gd)
     elif cmd == 'level': show(gd, level(levels(gd)[int(sys.argv[3])]), int(sys.argv[3]))
     elif cmd == 'map': print(map_text(level(levels(gd)[int(sys.argv[3])]), int(sys.argv[3])))
+    elif cmd == 'textures': print(textures_report(gd))
     elif cmd == 'savelev':
         L = level(open(sys.argv[3], 'rb').read(), True)
         print({k: v for k, v in L['hdr'].items() if k != 'walls'}); print('section table matches', L['real'] == list(L['sect']), 'records', len(L['recs']), 'npcs', len(L['npc']), 'objects', len(L['obj']), L['objcount2'], 'items', len(L['item']), 'dims', L['dims2'], 'notes', len(L['notes']), 'left over', L['left'], 'sect', L['sect'])
