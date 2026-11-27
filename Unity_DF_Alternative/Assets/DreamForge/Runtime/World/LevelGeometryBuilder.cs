@@ -41,13 +41,22 @@ namespace DreamForge.World
     }
 
     /// <summary>
-    /// Grid x -> world +X, grid y -> world -Z: cell (x, y) covers [x*s, (x+1)*s] x [-(y+1)*s, -y*s].
-    /// Seen from above with +Z up, the level looks like the ASCII map (y going down).
+    /// Grid x -> world +X, grid y -> world +Z: cell (x, y) covers [x*s, (x+1)*s] x [y*s, (y+1)*s].
+    /// Handedness checked against the game in DOSBox (level 1): facing y+1 (towards the inn's door),
+    /// x-1 is on the LEFT (the fireplace at x = 1). Seen from above with +Z at the top, the level is the
+    /// ASCII map (y going down) flipped vertically.
     /// </summary>
     public static class LevelGeometryBuilder
     {
         // Neighbour offsets in grid space, from the open cell towards the wall.
         static readonly (int dx, int dy)[] Sides = { (0, -1), (0, 1), (-1, 0), (1, 0) };
+
+        /// <summary>World position of grid point (gx, gy) (cell units, so a cell centre is x + 0.5).</summary>
+        public static Vector3 GridToWorld(float gx, float gy, float cellSize, float height = 0f) =>
+            new Vector3(gx * cellSize, height, gy * cellSize);
+
+        /// <summary>World direction of a grid step (dx, dy).</summary>
+        public static Vector3 GridDir(float dx, float dy) => new Vector3(dx, 0, dy);
 
         /// <param name="textures">null = debug colours; otherwise the walls, floor and ceiling are textured.</param>
         public static LevelMeshes Build(Level lv, LevelGeometrySettings s, LevelTextures textures)
@@ -77,7 +86,8 @@ namespace DreamForge.World
             for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                float x0 = x * c, x1 = (x + 1) * c, zN = -y * c, zS = -(y + 1) * c;
+                // zN = the cell's edge towards y-1, zS = towards y+1.
+                float x0 = x * c, x1 = (x + 1) * c, zN = y * c, zS = (y + 1) * c;
                 var cell = lv.At(x, y);
 
                 if (!cell.IsOpen)
@@ -92,8 +102,10 @@ namespace DreamForge.World
                 }
 
                 result.OpenCells++;
-                // Tiles (PROVISIONAL orientation, unconfirmed): laid on the map like an image, top row towards
-                // y-1, left column towards x-1. The ceiling uses the same world mapping.
+                // Tiles: top row towards y-1, left column towards x-1; the ceiling uses the same mapping.
+                // DOSBox (level 1) confirms the axes: facing the door, the floor boards (tile rows) run left to
+                // right and the ceiling boards (tile columns) run towards and away. Whether a tile is also
+                // mirrored or turned 180 degrees is not known.
                 floor.Quad(floorKey, Vector3.up, floorCol,
                            V(x0, 0, zS), V(x1, 0, zS), V(x1, 0, zN), V(x0, 0, zN));
                 if (!(textured && sky))
@@ -111,10 +123,10 @@ namespace DreamForge.World
                     if (!inside) result.EdgeFaces++;
 
                     // The shared edge, ordered from the viewer's left to right as seen from this cell.
-                    Vector3 normal = new Vector3(-dx, 0, dy);                 // points back into this cell
-                    Vector3 forward = -normal;
+                    Vector3 forward = GridDir(dx, dy);
+                    Vector3 normal = -forward;                                // points back into this cell
                     Vector3 right = Vector3.Cross(Vector3.up, forward);
-                    Vector3 mid = new Vector3((x0 + x1) / 2f + dx * c / 2f, 0, (zN + zS) / 2f - dy * c / 2f);
+                    Vector3 mid = GridToWorld(x + 0.5f + dx * 0.5f, y + 0.5f + dy * 0.5f, c);
                     Vector3 a = mid - right * (c / 2f), b = mid + right * (c / 2f);
 
                     if (textured && inside)

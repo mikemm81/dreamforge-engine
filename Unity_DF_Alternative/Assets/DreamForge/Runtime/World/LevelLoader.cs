@@ -211,7 +211,7 @@ namespace DreamForge.World
             ConfigurePlayer();
             player.Eye.clearFlags = CameraClearFlags.SolidColor;
             player.Eye.backgroundColor = DebugPalette.Background;
-            player.Teleport(CellCentre(cell) + Vector3.up * 0.05f, 0f);   // yaw 0 = facing +Z = up the map
+            player.Teleport(CellCentre(cell) + Vector3.up * 0.05f, 0f);   // yaw 0 = facing +Z = towards y+1
         }
 
         void ConfigurePlayer()
@@ -239,8 +239,9 @@ namespace DreamForge.World
             topDown.orthographicSize = Mathf.Max(h / 2f, w / 2f / aspect) * 1.05f;
             topDown.nearClipPlane = 0.1f;
             topDown.farClipPlane = top * 4f + 10f;
-            // Looking straight down with +Z at the top of the screen: the same orientation as the ASCII map.
-            topDown.transform.SetPositionAndRotation(new Vector3(w / 2f, top * 2f + 5f, -h / 2f),
+            // Looking straight down with +Z (y+1) at the top of the screen and x to the right: the true view
+            // from above, which is the ASCII map (y going down) flipped vertically.
+            topDown.transform.SetPositionAndRotation(new Vector3(w / 2f, top * 2f + 5f, h / 2f),
                                                      Quaternion.Euler(90f, 0f, 0f));
         }
 
@@ -264,7 +265,7 @@ namespace DreamForge.World
 
         // ---- helpers ----
 
-        Vector3 CellCentre(Vector2Int c) => new Vector3((c.x + 0.5f) * cellSize, 0, -(c.y + 0.5f) * cellSize);
+        Vector3 CellCentre(Vector2Int c) => LevelGeometryBuilder.GridToWorld(c.x + 0.5f, c.y + 0.5f, cellSize);
 
         bool InMap(Vector2Int c) => c.x >= 0 && c.y >= 0 && c.x < parsedLevel.Width && c.y < parsedLevel.Height;
 
@@ -305,7 +306,7 @@ namespace DreamForge.World
             {
                 string ceil = h.CeilingTile == -1 ? "sky (none drawn)" : $"tile {h.CeilingTile} -> RES4 {levelTextures.TileEntry(h.CeilingTile)}";
                 sb.Append($"  textured: wall set {h.WallSet}, palette {Palette3D}; floor tile {h.FloorTile} -> RES4 " +
-                          $"{levelTextures.TileEntry(h.FloorTile)}, ceiling {ceil} (tile orientation PROVISIONAL); " +
+                          $"{levelTextures.TileEntry(h.FloorTile)}, ceiling {ceil} (tile axes match DOSBox; mirror/180 unknown); " +
                           $"{meshes.Walls.Keys.Length} wall textures; placeholder quads {meshes.PlaceholderQuads}\n");
             }
             else

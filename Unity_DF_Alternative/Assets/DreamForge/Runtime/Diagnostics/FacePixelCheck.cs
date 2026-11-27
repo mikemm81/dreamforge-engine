@@ -116,9 +116,9 @@ namespace DreamForge.Diagnostics
                         Buffer.BlockCopy(rgba, y * 64 * 4, expected, ((y0 + y) * w + half * 64) * 4, 64 * 4);
                 }
 
-                Vector3 forward = new Vector3(dx, 0, -dy);
-                Vector3 centre = new Vector3((f.from.x + 0.5f + dx * 0.5f) * cell, h / (float)RowTexels * row / 2f,
-                                             -(f.from.y + 0.5f + dy * 0.5f) * cell);
+                Vector3 forward = LevelGeometryBuilder.GridDir(dx, dy);
+                Vector3 centre = LevelGeometryBuilder.GridToWorld(f.from.x + 0.5f + dx * 0.5f, f.from.y + 0.5f + dy * 0.5f,
+                                                                  cell, rows * row / 2f);
                 byte[] got = Render(centre - forward * (cell * 0.4f), Quaternion.LookRotation(forward, Vector3.up),
                                     w, h, row * rows / 2f, cell);
                 int diff = Compare(expected, got, out int maxDelta, out int firstAt);
@@ -133,18 +133,22 @@ namespace DreamForge.Diagnostics
                           $"  [{file}: render | expected]\n");
             }
 
-            // Floor: straight down, +Z (towards y-1) at the top of the image, so the tile appears as stored.
+            // Floor: straight down with +Z (towards y+1) at the top of the image and +X on the right. The tile's
+            // top row lies towards y-1, so from here it appears flipped vertically.
             {
                 int entry = loader.Textures.TileEntry(lv.Header.FloorTile);
-                byte[] expected = WallTexture.Decode(res, res.Entries[entry]).Image.ToRgba(pal);
-                var c = new Vector3((floorCell.x + 0.5f) * cell, row * 0.5f, -(floorCell.y + 0.5f) * cell);
+                byte[] tile = WallTexture.Decode(res, res.Entries[entry]).Image.ToRgba(pal);
+                var expected = new byte[tile.Length];
+                for (int y = 0; y < TileTexels; y++)
+                    Buffer.BlockCopy(tile, y * TileTexels * 4, expected, (TileTexels - 1 - y) * TileTexels * 4, TileTexels * 4);
+                var c = LevelGeometryBuilder.GridToWorld(floorCell.x + 0.5f, floorCell.y + 0.5f, cell, row * 0.5f);
                 byte[] got = Render(c, Quaternion.Euler(90f, 0f, 0f), TileTexels, TileTexels, cell / 2f, row);
                 int diff = Compare(expected, got, out int maxDelta, out int firstAt);
                 if (diff == 0) pass++; else fail++;
                 File.WriteAllBytes(Path.Combine(outDir, "floor.png"), SideBySide(got, expected, TileTexels, TileTexels));
                 sb.Append($"  {(diff == 0 ? "PASS" : "FAIL")} floor cell ({floorCell.x},{floorCell.y}): tile {lv.Header.FloorTile} (RES4 {entry}), " +
                           (diff == 0 ? "pixel-identical" : $"{diff} pixels differ (max delta {maxDelta})") +
-                          " to the tile laid top row towards y-1 (PROVISIONAL orientation; checks our UVs, not the game's)  [floor.png]\n");
+                          " to the tile laid top row towards y-1 (axes match DOSBox; mirror/180 degrees unknown; checks our UVs)  [floor.png]\n");
             }
 
             sb.Append($"  {pass} passed, {fail} failed; images in {outDir}");
