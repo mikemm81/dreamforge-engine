@@ -43,6 +43,15 @@ The counts are in the order NPC, item, object, but the spawn lists are in the or
 
 A wall type (M, P) has four faces. Each has four `s16` texture numbers, counted from the start of the wall set: left and right half of the lower row, then of the upper row *(the order within a face is likely)*.
 
+### Drawing a wall type *(likely)*
+
+Nothing in this section has been traced in the game. It was inferred from M's data and then tested on level 1. Built this way, level 1 is a coherent room: two-texture pictures such as a double door and a fireplace come out whole and the right way round. Each face of that room was rendered square-on and compared pixel for pixel with the decoded textures.
+
+- **Which face is which.** Face 0 is the wall cell's side facing x − 1, face 1 faces y + 1, face 2 faces x + 1 and face 3 faces y − 1. Evidence: records that sit on a wall face (decals, wall switches, things to examine) carry a face number, byte 0x0E. On wall cells with exactly one open neighbour, that number matches the open side in 207 of 219 cases.
+- **Halves and rows.** A face is two textures wide. The left half is on the left as seen from the open cell, looking at the face. One row is one wall texture, 192 pixels high, so a face is 128 × 192 texels per row. When the header byte 0x009 is 0 there are two rows, with the upper row on top of the lower. The upper-row order is supported only by how well the two textures join (288 of 388 lower/upper pairs join better this way round). Level 1 has one row, so it doesn't test it.
+- **Wall set start.** Texture numbers count from the start of the wall set in `RES4`. Wall set 0 starts at entry 0. Where the other wall sets start is not known.
+- **Floor and ceiling tiles.** Tile number *n* is the *n*-th tile entry in `RES4`, counting only entries whose stated size is 4,098 bytes. In M these are entries 976–1060, so tile 0 is entry 976. How a tile is turned on the map is not known. The engine provisionally lays it like a picture on the map, top row towards y − 1 and left column towards x − 1.
+
 ## Map cells
 
 Two bytes per cell, row by row: cell (x, y) starts at byte 2 × (y × width + x).
