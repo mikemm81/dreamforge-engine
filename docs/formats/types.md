@@ -19,6 +19,17 @@ shape = kind_base + type_base + frame × views + view
 
 Shapes below the NPC base are shared effects.
 
+## Wall sets and tiles in `RES4` (in `INIT`)
+
+Checked in M; P not yet checked. Not in official documentation: these fields were found in the game's own `INIT` and confirmed against the levels (see [levels.md](levels.md#drawing-a-wall-type-likely)).
+
+| Offset (M) | Type | Field |
+|---|---|---|
+| 0x16 | `u16` | `RES4` entry of floor/ceiling tile 0 (M: 976) |
+| 0x2A | `u16` × 15 | `RES4` entry where each wall set starts: sets 0–13, then the end of set 13 |
+
+Wall set *s* is the block of entries from table entry *s* up to, but not including, table entry *s* + 1. The last value equals the tile start. M's values are 0, 130, 177, 227, 277, 317, 357, 427, 517, 657, 759, 819, 896, 946, 976. A block holds both wall textures (type 5) and column shapes (type 6). A level's wall-face texture numbers, and the overlays of its wall switches and locks, count from the start of its set's block.
+
 - **Monsters, M and P:** 6 views. The walk block is 4 frames × 6 views, with views 2 and 4 empty (the back view, 3, is used instead). Attack and death frames follow.
 - **Monsters, S:** 8 views, all drawn. The walk block is usually 4 frames, then 8 more.
 - **Objects with 16 views** in S use 8 shapes.

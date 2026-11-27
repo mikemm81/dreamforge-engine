@@ -49,8 +49,14 @@ Nothing in this section has been traced in the game. It was inferred from M's da
 
 - **Which face is which.** Face 0 is the wall cell's side facing x − 1, face 1 faces y + 1, face 2 faces x + 1 and face 3 faces y − 1. Evidence: records that sit on a wall face (decals, wall switches, things to examine) carry a face number, byte 0x0E. On wall cells with exactly one open neighbour, that number matches the open side in 207 of 219 cases.
 - **Halves and rows.** A face is two textures wide. The left half is on the left as seen from the open cell, looking at the face. One row is one wall texture, 192 pixels high, so a face is 128 × 192 texels per row. When the header byte 0x009 is 0 there are two rows, with the upper row on top of the lower. The upper-row order is supported only by how well the two textures join (288 of 388 lower/upper pairs join better this way round). Level 1 has one row, so it doesn't test it.
-- **Wall set start.** Texture numbers count from the start of the wall set in `RES4`. Wall set 0 starts at entry 0. Where the other wall sets start is not known.
-- **Floor and ceiling tiles.** Tile number *n* is the *n*-th tile entry in `RES4`, counting only entries whose stated size is 4,098 bytes. In M these are entries 976–1060, so tile 0 is entry 976. A tile's top row lies towards y − 1 and its left column towards x − 1. Only the axes are confirmed, by level 1 in the game: facing y + 1, the floor boards (along the tile's rows) run left to right and the ceiling boards (along the tile's columns) run towards and away. Whether a tile is also mirrored or turned 180° is not known.
+- **Wall set start (confirmed).** Texture numbers count from the start of the level's wall set (header 0x811) in `RES4`. The starts come from a table in `INIT` (see [types.md](types.md#wall-sets-and-tiles-in-res4-in-init)). That table is the game's own data, not official documentation. Four independent checks agree with it:
+  - the starts the levels had already pinned down: set 0 at 0, set 7 at 427, set 8 at 517
+  - every set's block holds all the numbers its levels use
+  - every face number lands on a wall texture or a column shape, and every wall-switch or lock overlay on a column shape. Across all 35 real levels that is 7,680 face halves: 6,338 walls, 1,342 shapes, none missing.
+  - the textures of each wall type form coherent pictures
+
+  A face whose number lands on a column shape (type 6) is a masked wall. Most of these shapes cover the full 64 × 192 canvas; some have a ragged top.
+- **Floor and ceiling tiles (confirmed).** Tile number *n* is `RES4` entry *tile start* + *n*. The tile start is in `INIT` (M: 976), and every tile number used in M lands on a tile entry. A tile's top row lies towards y − 1 and its left column towards x − 1. Only the axes are confirmed, by level 1 in the game: facing y + 1, the floor boards (along the tile's rows) run left to right and the ceiling boards (along the tile's columns) run towards and away. Whether a tile is also mirrored or turned 180° is not known.
 - **Handedness.** Checked in the game on level 1: facing y + 1, x − 1 is on the left. Standing in the inn facing the door at (6, 6), the fireplace at x = 1 is on the left. Seen from above with x to the right, y therefore increases upwards, so a map printed with y going down is the level's mirror image.
 
 ## Map cells
