@@ -125,6 +125,16 @@ An item placed at exactly an NPC's position is carried by that NPC (M).
 | 5 | sound | 12 | raise an event |
 | 6 | music | 13 | spawn an NPC |
 
+### Doors, triggers and exits at run time *(likely)*
+
+Nothing here has been traced in the game. It was inferred from M's data, built that way, and walked through in the Unity engine on levels 1 and 18.
+
+- **Doors.** A door is a record of kind 1 on a wall cell: 257 of the 261 in M are on wall cells with the blocking bit set, and all start at position 8, taken as closed. The other four, all in level 0, sit on open cells. The door cell's wall type gives its faces. Nothing suggests a door opens when you walk into it. All but 8 records are the target of a trigger list: 233 by toggle, 19 by open and 1 by toggle and set wall.
+- **Floor triggers.** An enabled floor trigger (flag 4) runs its list (0x02) when you step onto its cell, and its second list (0x03, if not −1) when you step off. Level 18 puts one on each side of most doors, each toggling the door: one opens it on the way in, the other closes it behind you.
+- **Open, close and toggle.** Trigger operations 0–2 open, close or toggle a door. On any other cell they set or clear the enabled flag of the records there. Level 18 uses this to disable a floor trigger after it has fired once.
+- **Wall switches and locks.** A wall switch with flag 4 runs its list when used on its face (0x0E). Switches without flag 4 are pictures only, for example level 1's banners. A lock (kind 4) is mounted on a wall face. It holds a key item (0x06) and a list that toggles its door.
+- **Exits.** 189 of M's 208 exits are on wall cells and are taken by walking into the wall, for example the inn's door in level 1 and the edges of the outdoor maps. The rest are on open cells and are taken by stepping onto them. The target cell (0x06 level, 0x07 x, low byte of 0x08 y) is an open cell in all but a few cases: some of level 44's exits to cells in the same level. The turn (high byte of 0x08, × 45°) fits a turn relative to your heading: with turn 0, links such as the inn door and the edges between levels 18 and 21 leave you facing on into the new level. Which way a 90° turn goes is not known.
+
 ## Extra files in *Stone Prophet*
 
 - **`LEVINFO`**: 16 records of 0x801 bytes, each the "walls two rows high" byte and 64 wall types, for the 4 × 4 regions of the 256 × 256 level.

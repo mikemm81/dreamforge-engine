@@ -10,8 +10,12 @@ Future milestones for the Unity engine in `Unity_DF_Alternative/`. Kept short; d
 4. Palette and wall/tile texture decode; textured level 1 (walls, floor, ceiling), checked against the game in DOSBox for handedness and tile axes
 5. All levels textured: wall-set starts and tile start from `INIT` (0 missing faces across all 35 levels), two-row walls, masked walls (type-6 shapes as faces, alpha clip); checked pixel for pixel on levels 1 and 0
 6. Floor and ceiling under wall cells with a masked face (no more black sliver through level 0's broken palisade)
+7. Doors, floor triggers, wall switches (E) and exits between levels, driven by the levels' trigger lists; walked through on levels 1 and 18
 
 ## Next
 
 - **Wall overlays and decals.** In the game, level 1 shows banners, a dart board and extra windows on its walls, which we don't draw yet. They are most likely the cell records that point at a `RES4` entry (byte 0x08) and sit on one wall face (0x0E) and position (0x0F), drawn as type-6 masked column shapes. Level 1 has six: (2,2), (3,6), (6,1), (9,1), (9,6) and (11,5), using `RES4` 43–45. See [formats/levels.md](formats/levels.md) and [formats/images.md](formats/images.md).
 - **Sky.** Levels with ceiling tile −1 show the background colour and no ceiling; sky art is not drawn yet.
+- **Locks and items.** Locks need their key item (0x06) and there is no inventory yet; walking in M needs pick-up and an inventory before locked doors open.
+- **Other trigger operations.** Effects, set wall, sound, music, text, plot flags, cutscenes, events and NPC spawns are logged but not run.
+- **World map.** Exits to level 99 (the world map) are logged and ignored.
