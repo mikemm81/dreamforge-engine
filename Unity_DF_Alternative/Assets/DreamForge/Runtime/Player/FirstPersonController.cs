@@ -21,6 +21,10 @@ namespace DreamForge.Player
         public Camera Eye { get; private set; }
         /// <summary>When false, input is ignored (for example while the top-down camera is showing).</summary>
         public bool InputEnabled { get; set; } = true;
+        /// <summary>The controller touched a collider during a move (walls, doors, floor).</summary>
+        public event System.Action<ControllerColliderHit> Hit;
+        /// <summary>After every move, keyboard-driven or from <see cref="Move"/>.</summary>
+        public event System.Action Moved;
 
         CharacterController cc;
         float pitch, verticalSpeed;
@@ -93,7 +97,16 @@ namespace DreamForge.Player
             float speed = moveSpeed * (kb != null && kb.leftShiftKey.isPressed ? runMultiplier : 1f);
 
             verticalSpeed = cc.isGrounded ? -1f : verticalSpeed + gravity * Time.deltaTime;
-            cc.Move((move * speed + Vector3.up * verticalSpeed) * Time.deltaTime);
+            Move((move * speed + Vector3.up * verticalSpeed) * Time.deltaTime);
         }
+
+        /// <summary>Moves with collision, exactly as walking does (also used to drive the player from code).</summary>
+        public void Move(Vector3 delta)
+        {
+            cc.Move(delta);
+            Moved?.Invoke();
+        }
+
+        void OnControllerColliderHit(ControllerColliderHit h) => Hit?.Invoke(h);
     }
 }

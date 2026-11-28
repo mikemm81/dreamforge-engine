@@ -34,6 +34,8 @@ namespace DreamForge.World
         /// <summary>Wall type -> number of wall cells with it.</summary>
         public SortedDictionary<int, int> WallTypeCells = new SortedDictionary<int, int>();
         public int VanishingCells;
+        /// <summary>Door cells: built as separate pieces (BuildDoor); the static mesh treats them as open.</summary>
+        public int DoorCells;
 
         public void Destroy()
         {
@@ -61,7 +63,10 @@ namespace DreamForge.World
         public static Vector3 GridDir(float dx, float dy) => new Vector3(dx, 0, dy);
 
         /// <param name="textures">null = debug colours; otherwise the walls, floor and ceiling are textured.</param>
-        public static LevelMeshes Build(Level lv, LevelGeometrySettings s, LevelTextures textures)
+        /// <param name="doorCells">Wall cells that are doors. They get floor and ceiling like open cells, their
+        /// neighbours' faces into them (the door jambs), and no faces of their own: see <see cref="BuildDoor"/>.</param>
+        public static LevelMeshes Build(Level lv, LevelGeometrySettings s, LevelTextures textures,
+                                        ICollection<Vector2Int> doorCells = null)
         {
             int w = lv.Width, h = lv.Height;
             float c = s.CellSize;
@@ -91,8 +96,10 @@ namespace DreamForge.World
                 // zN = the cell's edge towards y-1, zS = towards y+1.
                 float x0 = x * c, x1 = (x + 1) * c, zN = y * c, zS = (y + 1) * c;
                 var cell = lv.At(x, y);
+                bool door = !cell.IsOpen && doorCells != null && doorCells.Contains(new Vector2Int(x, y));
+                if (door) result.DoorCells++;
 
-                if (!cell.IsOpen)
+                if (!cell.IsOpen && !door)
                 {
                     result.WallCells++;
                     result.WallTypeCells.TryGetValue(cell.WallType, out int n);
@@ -110,7 +117,7 @@ namespace DreamForge.World
                     continue;
                 }
 
-                result.OpenCells++;
+                if (!door) result.OpenCells++;
                 Tiles(floor, ceiling, floorKey, ceilKey, floorCol, ceilCol, sky && textured, x0, x1, zN, zS, top);
 
                 // A wall face on every side that borders a wall cell or the map edge, facing into this cell.
@@ -119,7 +126,7 @@ namespace DreamForge.World
                     int nx = x + dx, ny = y + dy;
                     bool inside = nx >= 0 && nx < w && ny >= 0 && ny < h;
                     Cell nb = inside ? lv.At(nx, ny) : default;
-                    if (inside && nb.IsOpen) continue;
+                    if (inside && (nb.IsOpen || doorCells != null && doorCells.Contains(new Vector2Int(nx, ny)))) continue;
                     result.WallFaces++;
                     if (!inside) result.EdgeFaces++;
 
@@ -132,17 +139,9 @@ namespace DreamForge.World
 
                     if (textured && inside)
                     {
-                        // The wall cell's face that looks back at us; split into halves (left, right) and rows.
-                        int face = LevelTextures.FaceTowards(-dx, -dy);
-                        for (int row = 0; row < rows; row++)
-                        for (int half = 0; half < 2; half++)
-                        {
-                            int key = textures.WallEntry(nb.WallType, face, row, half);
-                            if (key == LevelTextures.Placeholder) result.PlaceholderQuads++;
-                            Vector3 l = Vector3.Lerp(a, b, half / 2f), r = Vector3.Lerp(a, b, (half + 1) / 2f);
-                            Vector3 lo = Vector3.up * (row * s.RowHeight), hi = Vector3.up * ((row + 1) * s.RowHeight);
-                            walls.Quad(key, normal, Color.white, l + lo, r + lo, r + hi, l + hi);
-                        }
+                        // The wall cell's face that looks back at us.
+                        result.PlaceholderQuads += TexturedFace(walls, textures, nb.WallType,
+                                                                LevelTextures.FaceTowards(-dx, -dy), rows, s.RowHeight, a, b, normal);
                         continue;
                     }
 
@@ -158,6 +157,67 @@ namespace DreamForge.World
             result.Walls = walls.ToPart($"Level{lv.Index}_Walls");
             result.WallTops = tops.ToPart($"Level{lv.Index}_WallTops");
             return result;
+        }
+
+        /// <summary>
+        /// One face of a wall type between a and b (the viewer's left and right ends at floor level), split into
+        /// halves (left, right) and rows. Returns the number of placeholder quads.
+        /// </summary>
+        static int TexturedFace(MeshData m, LevelTextures textures, int wallType, int face, int rows, float rowHeight,
+                                Vector3 a, Vector3 b, Vector3 normal)
+        {
+            int placeholders = 0;
+            for (int row = 0; row < rows; row++)
+            for (int half = 0; half < 2; half++)
+            {
+                int key = textures.WallEntry(wallType, face, row, half);
+                if (key == LevelTextures.Placeholder) placeholders++;
+                Vector3 l = Vector3.Lerp(a, b, half / 2f), r = Vector3.Lerp(a, b, (half + 1) / 2f);
+                Vector3 lo = Vector3.up * (row * rowHeight), hi = Vector3.up * ((row + 1) * rowHeight);
+                m.Quad(key, normal, Color.white, l + lo, r + lo, r + hi, l + hi);
+            }
+            return placeholders;
+        }
+
+        /// <summary>
+        /// The moving part of door cell (x, y), in world coordinates: its wall type's faces on every side that
+        /// borders an open cell or another door, looking out of the cell, plus its top (seen from above).
+        /// </summary>
+        public static MeshPart BuildDoor(Level lv, LevelGeometrySettings s, LevelTextures textures, int x, int y,
+                                         ICollection<Vector2Int> doorCells)
+        {
+            float c = s.CellSize;
+            int rows = LevelTextures.Rows(lv.Header);
+            float top = rows * s.RowHeight;
+            bool linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
+            var cell = lv.At(x, y);
+            var m = new MeshData();
+            foreach (var (dx, dy) in Sides)
+            {
+                int nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= lv.Width || ny >= lv.Height) continue;
+                if (!lv.At(nx, ny).IsOpen && !doorCells.Contains(new Vector2Int(nx, ny))) continue;
+                // Seen from the neighbour, looking back at the door (direction -dx, -dy).
+                Vector3 forward = GridDir(-dx, -dy);
+                Vector3 normal = -forward;
+                Vector3 right = Vector3.Cross(Vector3.up, forward);
+                Vector3 mid = GridToWorld(x + 0.5f + dx * 0.5f, y + 0.5f + dy * 0.5f, c);
+                Vector3 a = mid - right * (c / 2f), b = mid + right * (c / 2f);
+                if (textures != null)
+                    TexturedFace(m, textures, cell.WallType, LevelTextures.FaceTowards(dx, dy), rows, s.RowHeight, a, b, normal);
+                else
+                {
+                    Color k = DebugPalette.WallType(cell.WallType);
+                    if (dx != 0) k *= DebugPalette.EastWestShade;
+                    k.a = 1;
+                    m.Quad(LevelTextureCache.White, normal, linear ? k.linear : k, a, b, b + Vector3.up * top, a + Vector3.up * top);
+                }
+            }
+            float x0 = x * c, x1 = (x + 1) * c, zN = y * c, zS = (y + 1) * c;
+            Color t = DebugPalette.WallType(cell.WallType);
+            m.Quad(LevelTextureCache.White, Vector3.up, linear ? t.linear : t,
+                   V(x0, top, zN), V(x1, top, zN), V(x1, top, zS), V(x0, top, zS));
+            return m.ToPart($"Level{lv.Index}_Door_{x}_{y}");
         }
 
         // Tiles: top row towards y-1, left column towards x-1; the ceiling uses the same mapping.

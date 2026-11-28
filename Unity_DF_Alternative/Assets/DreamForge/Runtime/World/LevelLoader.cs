@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using DreamForge.Data;
@@ -46,12 +47,30 @@ namespace DreamForge.World
         [Tooltip("Cell to start in; (-1, -1) = the open cell nearest the middle with the most open neighbours.")]
         [SerializeField] Vector2Int spawnCell = new Vector2Int(-1, -1);
 
+        /// <summary>
+        /// INFERRED from data, NOT verified: which way an exit's turn (0x08 high byte, steps of 45 degrees) goes.
+        /// Taken as relative to the heading you walk in with (turn 0 keeps it: every turn-0 link, such as the
+        /// inn door and the 18/21 edges, then has you facing on into the new level). +1 = clockwise seen from
+        /// above. Turns 4 (180 degrees) don't depend on it; turns 2, 6 and 7 (six exits in M) do.
+        /// </summary>
+        const int ExitTurnSign = 1;
+
         // Parsed at run time from the user's game data; never serialized.
+        [NonSerialized] LevelsFile levelsFile;
+        [NonSerialized] ResFile res4;
+        [NonSerialized] Palette palette;
+        [NonSerialized] GameInit init;
         [NonSerialized] Level parsedLevel;
         [NonSerialized] LevelTextures levelTextures;
         [NonSerialized] LevelTextureCache textureCache;
 
         LevelMeshes meshes;
+        HashSet<Vector2Int> doorCells = new HashSet<Vector2Int>();
+        readonly List<Mesh> doorMeshes = new List<Mesh>();
+        LevelPlay play;
+        int currentLevel = -1;
+        Vector2Int playerCell;
+        ExitTarget? pendingExit;
         GameObject root;
         FirstPersonController player;
         Camera topDown;
@@ -66,6 +85,12 @@ namespace DreamForge.World
         public float CellSize => builtCell;
         public float RowHeight => builtRow;
         public bool IsTextured => builtTextured && levelTextures != null;
+        /// <summary>Doors, triggers and exits of the current level.</summary>
+        public LevelPlay Play => play;
+        public FirstPersonController Player => player;
+        /// <summary>The level now loaded (exits change it; the serialized start level stays as it is).</summary>
+        public int CurrentLevel => currentLevel;
+        public Vector2Int PlayerCell => playerCell;
 
         // Everything is set up in Awake, before the first frame is rendered, so the scene (which holds no
         // camera of its own) has the player's camera from frame one on an ordinary Play.
@@ -75,12 +100,11 @@ namespace DreamForge.World
             {
                 string path = DataPaths.Resolve(game, "LEVELS.DAT", localFolderOverride, out string error);
                 if (path == null) { Fail(error); return; }
-                parsedLevel = LevelsFile.Open(path).ReadLevel(levelNumber, LevelLayout.ForGame(game));
-                foreach (var w in parsedLevel.Warnings) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
+                levelsFile = LevelsFile.Open(path);
             }
             catch (Exception ex)
             {
-                Fail($"Failed to read level {levelNumber}: {ex.GetType().Name}: {ex.Message}");
+                Fail($"Failed to open LEVELS.DAT: {ex.GetType().Name}: {ex.Message}");
                 return;
             }
 
@@ -92,22 +116,60 @@ namespace DreamForge.World
             }
 
             LoadTextures();
+            LoadLevel(levelNumber, spawnCell.x >= 0 ? spawnCell : (Vector2Int?)null, 0f);
+        }
+
+        /// <summary>
+        /// Loads level <paramref name="number"/> and puts the player in <paramref name="cell"/> (null = the
+        /// automatic choice) facing <paramref name="yaw"/> degrees (0 = towards y+1). Returns false if the
+        /// level can't be read (the current one stays).
+        /// </summary>
+        public bool LoadLevel(int number, Vector2Int? cell, float yaw)
+        {
+            Level next;
+            try
+            {
+                next = levelsFile.ReadLevel(number, LevelLayout.ForGame(game));
+                foreach (var w in next.Warnings) Debug.LogWarning($"[WALK] level {number}: {w}");
+            }
+            catch (Exception ex)
+            {
+                if (parsedLevel == null) Fail($"Failed to read level {number}: {ex.GetType().Name}: {ex.Message}");
+                else Debug.LogError($"[WALK] failed to read level {number}: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+
+            parsedLevel = next;
+            currentLevel = number;
+            levelTextures = res4 != null && init != null ? new LevelTextures(res4, parsedLevel.Header, init) : null;
+            var ignored = new List<string>();
+            doorCells = LevelPlay.DoorCells(parsedLevel, ignored);
+            foreach (var w in ignored) Debug.LogWarning($"[WALK] level {number}: {w}");
+            play = new LevelPlay(parsedLevel);
+            play.ExitTaken += t => pendingExit = t;
+            pendingExit = null;
             Build();
-            var spawn = spawnCell.x >= 0 ? spawnCell : PickSpawn(parsedLevel);
+
+            var spawn = cell ?? PickSpawn(parsedLevel);
             if (!InMap(spawn) || !parsedLevel.At(spawn.x, spawn.y).IsOpen)
             {
-                Debug.LogWarning($"[WALK] spawn cell {spawn} is not an open cell; using the automatic choice.");
-                spawn = PickSpawn(parsedLevel);
+                var near = NearestOpen(parsedLevel, spawn);
+                Debug.LogWarning($"[WALK] level {number}: cell {spawn} is not an open cell; using {near}.");
+                spawn = near;
             }
-            CreatePlayer(spawn);
+            if (player == null) CreatePlayer(spawn, yaw);
+            else player.Teleport(CellCentre(spawn) + Vector3.up * 0.05f, yaw);
+            playerCell = spawn;   // arriving doesn't fire the cell's floor trigger or exit
             LogSummary(spawn);
+            return true;
         }
 
         /// <summary>RES4 + COLORS + INIT. If any is missing the level still loads, in debug colours.</summary>
         void LoadTextures()
         {
-            ResFile res4 = null;
-            Palette palette = null;
+            res4 = null;
+            palette = null;
+            init = null;
             try
             {
                 string resPath = DataPaths.Resolve(game, "RES4", localFolderOverride, out string e1);
@@ -121,9 +183,8 @@ namespace DreamForge.World
                     var colors = ColorsFile.Open(colorsPath);
                     foreach (var w in colors.Warnings) Debug.LogWarning($"[WALK] COLORS: {w}");
                     palette = colors.Get(Palette3D);
-                    var init = GameInit.Open(initPath);
+                    init = GameInit.Open(initPath);
                     foreach (var w in init.Warnings) Debug.LogWarning($"[WALK] INIT: {w}");
-                    levelTextures = new LevelTextures(res4, parsedLevel.Header, init);
                 }
             }
             catch (Exception ex)
@@ -131,7 +192,7 @@ namespace DreamForge.World
                 Debug.LogWarning($"[WALK] no textures, using debug colours: {ex.GetType().Name}: {ex.Message}");
                 res4 = null;
                 palette = null;
-                levelTextures = null;
+                init = null;
             }
             textureCache = new LevelTextureCache(res4, palette, material);
         }
@@ -147,11 +208,14 @@ namespace DreamForge.World
             var kb = Keyboard.current;
             if (kb != null && kb.tabKey.wasPressedThisFrame)
                 SetTopDown(!topDown.enabled);
+            if (kb != null && kb.eKey.wasPressedThisFrame && player.InputEnabled)
+                UseFacing();
         }
 
         void OnDestroy()
         {
             meshes?.Destroy();
+            foreach (var m in doorMeshes) if (m != null) Destroy(m);
             textureCache?.Dispose();
         }
 
@@ -160,29 +224,58 @@ namespace DreamForge.World
         void Build()
         {
             meshes?.Destroy();
-            if (root != null) Destroy(root);
+            foreach (var m in doorMeshes) if (m != null) Destroy(m);
+            doorMeshes.Clear();
+            if (root != null)
+            {
+                root.SetActive(false);   // Destroy waits for the end of the frame; hide its renderers and colliders now
+                Destroy(root);
+            }
 
             var settings = new LevelGeometrySettings
                 { CellSize = cellSize, RowHeight = rowHeight, TintVanishingWalls = tintVanishingWalls };
-            meshes = LevelGeometryBuilder.Build(parsedLevel, settings, textured ? levelTextures : null);
+            meshes = LevelGeometryBuilder.Build(parsedLevel, settings, textured ? levelTextures : null, doorCells);
             builtCell = cellSize;
             builtRow = rowHeight;
             builtTint = tintVanishingWalls;
             builtTextured = textured;
 
-            root = new GameObject($"Level {levelNumber} (generated)");
+            root = new GameObject($"Level {currentLevel} (generated)");
             root.transform.SetParent(transform, false);
             Part("Floor", meshes.Floor, collide: true);
             Part("Ceiling", meshes.Ceiling, collide: false);
             Part("Walls", meshes.Walls, collide: true);
             Part("WallTops", meshes.WallTops, collide: false);   // only visible from above
+            BuildDoors(settings);
             PlaceTopDownCamera();
 
             if (IsTextured)
             {
-                foreach (var w in levelTextures.Warnings) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
-                foreach (var w in textureCache.Warnings.Distinct()) Debug.LogWarning($"[WALK] level {levelNumber}: {w}");
+                foreach (var w in levelTextures.Warnings) Debug.LogWarning($"[WALK] level {currentLevel}: {w}");
+                foreach (var w in textureCache.Warnings.Distinct()) Debug.LogWarning($"[WALK] level {currentLevel}: {w}");
                 textureCache.Warnings.Clear();
+            }
+        }
+
+        /// <summary>One moving piece per door cell. A rebuild keeps each door's open/closed state.</summary>
+        void BuildDoors(LevelGeometrySettings settings)
+        {
+            var was = new Dictionary<Vector2Int, bool>();
+            foreach (var kv in play.Doors) if (kv.Value != null) was[kv.Key] = kv.Value.WantsOpen;
+            foreach (var c in doorCells)
+            {
+                var part = LevelGeometryBuilder.BuildDoor(parsedLevel, settings, textured ? levelTextures : null, c.x, c.y, doorCells);
+                doorMeshes.Add(part.Mesh);
+                var go = new GameObject($"Door ({c.x}, {c.y})");
+                go.transform.SetParent(root.transform, false);
+                go.AddComponent<MeshFilter>().sharedMesh = part.Mesh;
+                go.AddComponent<MeshRenderer>().sharedMaterials = part.Keys.Select(textureCache.Material).ToArray();
+                var door = go.AddComponent<Door>();
+                door.Init(c, cellSize, meshes.WallHeight);
+                var cc = c;
+                door.Occupied = () => playerCell == cc;
+                if (was.TryGetValue(c, out bool open) && open) { door.SetOpen(true); door.Finish(); }
+                play.AddDoor(door);
             }
         }
 
@@ -210,7 +303,7 @@ namespace DreamForge.World
 
         // ---- player and cameras ----
 
-        void CreatePlayer(Vector2Int cell)
+        void CreatePlayer(Vector2Int cell, float yaw)
         {
             var go = new GameObject("Player");
             go.AddComponent<CharacterController>();
@@ -218,7 +311,9 @@ namespace DreamForge.World
             ConfigurePlayer();
             player.Eye.clearFlags = CameraClearFlags.SolidColor;
             player.Eye.backgroundColor = DebugPalette.Background;
-            player.Teleport(CellCentre(cell) + Vector3.up * 0.05f, 0f);   // yaw 0 = facing +Z = towards y+1
+            player.Teleport(CellCentre(cell) + Vector3.up * 0.05f, yaw);   // yaw 0 = facing +Z = towards y+1
+            player.Moved += OnPlayerMoved;
+            player.Hit += OnPlayerHit;
         }
 
         void ConfigurePlayer()
@@ -270,7 +365,80 @@ namespace DreamForge.World
             cam.backgroundColor = DebugPalette.Background;
         }
 
+        // ---- play ----
+
+        void OnPlayerMoved()
+        {
+            var c = WorldToCell(player.transform.position);
+            if (c != playerCell)
+            {
+                var from = playerCell;
+                playerCell = c;
+                play.LeaveCell(from);
+                play.EnterCell(c);
+            }
+            if (pendingExit.HasValue)
+            {
+                var t = pendingExit.Value;
+                pendingExit = null;
+                TakeExit(t);
+            }
+        }
+
+        void OnPlayerHit(ControllerColliderHit h)
+        {
+            if (Mathf.Abs(h.normal.y) > 0.5f) return;   // floor or ceiling
+            var c = WorldToCell(h.point - h.normal * 0.05f);
+            if (c != playerCell) play.Bump(c);
+        }
+
+        void TakeExit(ExitTarget t)
+        {
+            if (t.Level == LevelPlay.WorldMapLevel)
+            {
+                Debug.Log("[PLAY] exit to the world map (level 99): not implemented; staying here");
+                return;
+            }
+            if (t.Level < 0 || t.Level >= levelsFile.Count)
+            {
+                Debug.LogWarning($"[PLAY] exit to level {t.Level}: LEVELS.DAT has {levelsFile.Count} levels; staying here");
+                return;
+            }
+            float yaw = player.transform.eulerAngles.y + ExitTurnSign * t.Turn * 45f;
+            LoadLevel(t.Level, t.Cell, yaw);
+        }
+
+        /// <summary>Uses the wall face the player looks at, if it is within reach (E).</summary>
+        public bool UseFacing()
+        {
+            var eye = player.Eye.transform;
+            if (!Physics.Raycast(eye.position, eye.forward, out var hit, cellSize * 1.25f)) return false;
+            if (Mathf.Abs(hit.normal.y) > 0.5f) return false;
+            var c = WorldToCell(hit.point - hit.normal * 0.05f);
+            int face = LevelTextures.FaceTowards(Mathf.RoundToInt(hit.normal.x), Mathf.RoundToInt(hit.normal.z));
+            bool used = play.Use(c, face);
+            if (!used) Debug.Log($"[PLAY] nothing to use on wall ({c.x}, {c.y}) face {face}");
+            return used;
+        }
+
         // ---- helpers ----
+
+        public Vector2Int WorldToCell(Vector3 p) =>
+            new Vector2Int(Mathf.FloorToInt(p.x / cellSize), Mathf.FloorToInt(p.z / cellSize));
+
+        static Vector2Int NearestOpen(Level lv, Vector2Int c)
+        {
+            var best = PickSpawn(lv);
+            int bestD = int.MaxValue;
+            for (int y = 0; y < lv.Height; y++)
+            for (int x = 0; x < lv.Width; x++)
+            {
+                if (!lv.At(x, y).IsOpen) continue;
+                int d = (x - c.x) * (x - c.x) + (y - c.y) * (y - c.y);
+                if (d < bestD) { bestD = d; best = new Vector2Int(x, y); }
+            }
+            return best;
+        }
 
         Vector3 CellCentre(Vector2Int c) => LevelGeometryBuilder.GridToWorld(c.x + 0.5f, c.y + 0.5f, cellSize);
 
@@ -305,7 +473,7 @@ namespace DreamForge.World
         {
             var h = parsedLevel.Header;
             var sb = new StringBuilder();
-            sb.Append($"[WALK] level {levelNumber}: {parsedLevel.Width}x{parsedLevel.Height}, cell {cellSize} m, " +
+            sb.Append($"[WALK] level {currentLevel}: {parsedLevel.Width}x{parsedLevel.Height}, cell {cellSize} m, " +
                       $"row height {rowHeight} m x {meshes.Rows} row(s) = walls {meshes.WallHeight} m\n");
             sb.Append($"  open cells {meshes.OpenCells} (floor + ceiling quads), wall cells {meshes.WallCells}, " +
                       $"wall faces {meshes.WallFaces} (of them map edge {meshes.EdgeFaces}), vanishing walls {meshes.VanishingCells}\n");
@@ -320,8 +488,8 @@ namespace DreamForge.World
             }
             else
                 sb.Append($"  debug colours; ceiling: {(h.CeilingTile == -1 ? "sky (grey)" : "tile " + h.CeilingTile)}\n");
-            sb.Append($"  spawn cell ({spawn.x}, {spawn.y})\n");
-            sb.Append("  controls: click to capture the mouse, WASD/arrows, Shift to run, Tab top-down view, Esc release\n");
+            sb.Append($"  spawn cell ({spawn.x}, {spawn.y}); doors {meshes.DoorCells}\n");
+            sb.Append("  controls: click to capture the mouse, WASD/arrows, Shift to run, E use (wall switches), Tab top-down view, Esc release\n");
             sb.Append("  wall-type legend (map char, index, debug RGB, cells):");
             foreach (var kv in meshes.WallTypeCells)
                 sb.Append($"\n    {LevelReport.WallTypeChars[kv.Key]}  {kv.Key,2}  #{DebugPalette.Hex(DebugPalette.WallType(kv.Key))}  {kv.Value}");
