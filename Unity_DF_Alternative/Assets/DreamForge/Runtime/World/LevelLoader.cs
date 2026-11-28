@@ -314,7 +314,8 @@ namespace DreamForge.World
                 string ceil = h.CeilingTile == -1 ? "sky (none drawn)" : $"tile {h.CeilingTile} -> RES4 {levelTextures.TileEntry(h.CeilingTile)}";
                 sb.Append($"  textured: wall set {h.WallSet}, palette {Palette3D}; floor tile {h.FloorTile} -> RES4 " +
                           $"{levelTextures.TileEntry(h.FloorTile)}, ceiling {ceil} (tile axes match DOSBox; mirror/180 unknown); " +
-                          $"wall textures {meshes.Walls.Keys.Count(k => k >= 0)} (masked {meshes.Walls.Keys.Count(textureCache.IsMasked)}); " +
+                          $"wall textures {meshes.Walls.Keys.Count(k => k >= 0)} (masked {meshes.Walls.Keys.Count(textureCache.IsMasked)}, " +
+                          $"{meshes.MaskedWallCells} masked wall cells get floor + ceiling); " +
                           $"placeholder quads {meshes.PlaceholderQuads}\n");
             }
             else

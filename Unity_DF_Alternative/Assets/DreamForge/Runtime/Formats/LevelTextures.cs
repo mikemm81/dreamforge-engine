@@ -107,6 +107,17 @@ namespace DreamForge.Formats
             return r;
         }
 
+        /// <summary>True when any half-row of any face of the wall type is a column shape (a masked, see-through wall).</summary>
+        public bool HasShapeFace(int wallType)
+        {
+            int rows = Rows(header);
+            for (int f = 0; f < 4; f++)
+            for (int row = 0; row < rows; row++)
+            for (int half = 0; half < 2; half++)
+                if (Resolve(wallType, f, row, half).Kind == FaceTextureKind.Shape) return true;
+            return false;
+        }
+
         /// <summary>
         /// RES4 entry to draw for one half-row of a face: a wall texture, or a column shape drawn as a
         /// masked wall. Placeholder (with a warning) only when it cannot be resolved.

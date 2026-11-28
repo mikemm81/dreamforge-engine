@@ -29,6 +29,8 @@ namespace DreamForge.World
         public int Rows;
         public float WallHeight;
         public int OpenCells, WallFaces, EdgeFaces, WallCells, PlaceholderQuads;
+        /// <summary>Wall cells with a masked face, which get floor and ceiling quads too.</summary>
+        public int MaskedWallCells;
         /// <summary>Wall type -> number of wall cells with it.</summary>
         public SortedDictionary<int, int> WallTypeCells = new SortedDictionary<int, int>();
         public int VanishingCells;
@@ -98,19 +100,18 @@ namespace DreamForge.World
                     if (cell.VanishingWall) result.VanishingCells++;
                     tops.Quad(LevelTextureCache.White, Vector3.up, Col(WallColour(cell, s)),
                               V(x0, top, zN), V(x1, top, zN), V(x1, top, zS), V(x0, top, zS));
+                    // A masked (see-through) wall cell gets the level's floor and ceiling under it, so its
+                    // cut-out pixels show floor rather than the empty space below the cell.
+                    if (textured && textures.HasShapeFace(cell.WallType))
+                    {
+                        result.MaskedWallCells++;
+                        Tiles(floor, ceiling, floorKey, ceilKey, floorCol, ceilCol, sky && textured, x0, x1, zN, zS, top);
+                    }
                     continue;
                 }
 
                 result.OpenCells++;
-                // Tiles: top row towards y-1, left column towards x-1; the ceiling uses the same mapping.
-                // DOSBox (level 1) confirms the axes: facing the door, the floor boards (tile rows) run left to
-                // right and the ceiling boards (tile columns) run towards and away. Whether a tile is also
-                // mirrored or turned 180 degrees is not known.
-                floor.Quad(floorKey, Vector3.up, floorCol,
-                           V(x0, 0, zS), V(x1, 0, zS), V(x1, 0, zN), V(x0, 0, zN));
-                if (!(textured && sky))
-                    ceiling.Quad(ceilKey, Vector3.down, ceilCol,
-                                 V(x0, top, zS), V(x1, top, zS), V(x1, top, zN), V(x0, top, zN));
+                Tiles(floor, ceiling, floorKey, ceilKey, floorCol, ceilCol, sky && textured, x0, x1, zN, zS, top);
 
                 // A wall face on every side that borders a wall cell or the map edge, facing into this cell.
                 foreach (var (dx, dy) in Sides)
@@ -157,6 +158,18 @@ namespace DreamForge.World
             result.Walls = walls.ToPart($"Level{lv.Index}_Walls");
             result.WallTops = tops.ToPart($"Level{lv.Index}_WallTops");
             return result;
+        }
+
+        // Tiles: top row towards y-1, left column towards x-1; the ceiling uses the same mapping.
+        // DOSBox (level 1) confirms the axes: facing the door, the floor boards (tile rows) run left to
+        // right and the ceiling boards (tile columns) run towards and away. Whether a tile is also
+        // mirrored or turned 180 degrees is not known.
+        static void Tiles(MeshData floor, MeshData ceiling, int floorKey, int ceilKey, Color floorCol, Color ceilCol,
+                          bool noCeiling, float x0, float x1, float zN, float zS, float top)
+        {
+            floor.Quad(floorKey, Vector3.up, floorCol, V(x0, 0, zS), V(x1, 0, zS), V(x1, 0, zN), V(x0, 0, zN));
+            if (!noCeiling)
+                ceiling.Quad(ceilKey, Vector3.down, ceilCol, V(x0, top, zS), V(x1, top, zS), V(x1, top, zN), V(x0, top, zN));
         }
 
         static Vector3 V(float x, float y, float z) => new Vector3(x, y, z);
